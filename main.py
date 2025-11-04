@@ -1,5 +1,5 @@
 def main():
-    print("Hello from polyfetch!")
+    print("Hello from polymorph!")
 
 
 if __name__ == "__main__":
