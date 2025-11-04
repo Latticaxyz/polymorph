@@ -12,8 +12,8 @@ GAMMA_BASE = "https://gamma-api.polymarket.com"
 
 
 @retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=5),
     retry=retry_if_exception_type((httpx.HTTPError,)),
 )
 async def _get(
@@ -25,12 +25,11 @@ async def _get(
 
 
 async def fetch_markets(
-    client: httpx.AsyncClient, active_only: bool = True
+    client: httpx.AsyncClient, active_only: bool = True, max_pages: int = 25
 ) -> pl.DataFrame:
     url = f"{GAMMA_BASE}/markets"
     page = 1
-    out = []
-
+    out: list[dict] = []
     while True:
         data = await _get(client, url, params={"page": page, "limit": 100})
         if isinstance(data, dict):
@@ -39,14 +38,13 @@ async def fetch_markets(
             items = data
         else:
             items = []
-
         if not items:
             break
         out.extend(items)
-        if len(items) < 100:
+        if len(items) < 100 or page >= max_pages:
             break
         page += 1
-    df = pl.DataFrame(out)
-    if active_only and "closed" in df.columns:
+    df = pl.DataFrame(out) if out else pl.DataFrame()
+    if active_only and df.height and "closed" in df.columns:
         df = df.filter(~pl.col("closed"))
     return df

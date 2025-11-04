@@ -51,7 +51,7 @@ async def fetch_prices_history(
 async def fetch_trades_paged(
     client: httpx.AsyncClient,
     *,
-    limit: int = 10,
+    limit: int = 1000,
     offset: int = 0,
     market_ids: list[str] | None = None,
 ) -> list[dict]:
@@ -60,8 +60,7 @@ async def fetch_trades_paged(
         params["market"] = ",".join(market_ids)
     url = f"{DATA_API}/trades"
     data = await _get(client, url, params=params)
-    assert isinstance(data, list)
-    return data
+    return data if isinstance(data, list) else data.get("data", [])
 
 
 async def backfill_trades(
@@ -70,19 +69,26 @@ async def backfill_trades(
     rows: list[dict] = []
     offset = 0
     limit = 1000
-
     while True:
         batch = await fetch_trades_paged(
             client, limit=limit, offset=offset, market_ids=market_ids
         )
         if not batch:
             break
+        rows.extend(batch)
         offset += limit
-        if offset > 200000:
+        if len(batch) < limit or offset > 200000:
             break
-
     if not rows:
         return pl.DataFrame()
     df = pl.DataFrame(rows)
-    df = df.filter(pl.col("timestamp") >= since_ts)
+    if "timestamp" not in df.columns and "created_at" in df.columns:
+        df = df.with_columns(
+            pl.col("created_at")
+            .str.strptime(pl.Datetime, strict=False, format="%Y-%m-%dT%H:%M:%S%z")
+            .cast(pl.Int64)
+            .alias("timestamp")
+        )
+    if "timestamp" in df.columns:
+        df = df.filter(pl.col("timestamp") >= since_ts)
     return df
