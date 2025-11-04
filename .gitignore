@@ -9,4 +9,11 @@ wheels/
 # Virtual environments
 .venv
 
+# Parquet datasets
+data/
+
+# uv files
 uv.lock
+
+# Misc
+.DS_Store
