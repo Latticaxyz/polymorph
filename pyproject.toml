@@ -3,12 +3,12 @@ name = "polyfetch"
 version = "0.1.0"
 description = "Polymarket data scraper and pipeline"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.9"
 dependencies = [
-    "httpx>=0.28.1",
-    "pandas>=2.3.3",
-    "pyarrow>=22.0.0",
-    "python-dateutil>=2.9.0.post0",
-    "tenacity>=9.1.2",
-    "tqdm>=4.67.1",
+  "httpx>=0.28.1",
+  "pandas>=2.3.3",
+  "pyarrow>=21.0.0",
+  "python-dateutil>=2.9.0.post0",
+  "tenacity>=9.1.2",
+  "tqdm>=4.67.1",
 ]
