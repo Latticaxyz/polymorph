@@ -63,9 +63,15 @@ async def last_n_months(
                             market_df,
                             out_root / "raw" / "gamma" / f"{stamp}_markets.parquet",
                         )
-                        if "token_id" in market_df.columns:
+                        if "token_ids" in market_df.columns:
+                            tokens_df = (
+                                market_df.select(pl.col("token_ids"))
+                                .explode("token_ids")
+                                .drop_nulls()
+                                .unique()
+                            )
                             token_ids = [
-                                str(x) for x in market_df["token_id"].to_list() if x
+                                str(x) for x in tokens_df["token_ids"].to_list() if x
                             ]
                         elif "outcomes" in market_df.columns:
                             tokens_df = (
@@ -113,48 +119,46 @@ async def last_n_months(
                                     f"[green]✓[/green] {tok} prices rows={df.height}"
                                 )
                             else:
-                                progress.log(f"[yellow]•[/yellow] {tok} prices empty")
+                                progress.log(f"[yellow]•[/yellow] {tok} empty")
                         except Exception as e:
-                            progress.log(f"[red]✗[/red] {tok} prices error: {e!r}")
+                            progress.log(f"[red]✗[/red] {tok} error: {e!r}")
                         finally:
-                            progress.remove_task(sub)
+                            progress.update(sub, visible=False)
                             progress.advance(t_prices)
 
-                    tasks = [asyncio.create_task(worker(tok)) for tok in token_ids]
-                    await asyncio.gather(*tasks)
+                    await asyncio.gather(*[worker(t) for t in token_ids])
                     if prices_out:
-                        prices = pl.concat(prices_out, how="diagonal_relaxed")
+                        combined = pl.concat(prices_out, how="vertical")
                         io.storage.write_parquet(
-                            prices,
-                            out_root
-                            / "raw"
-                            / "clob"
-                            / f"{stamp}_prices_history.parquet",
+                            combined,
+                            out_root / "raw" / "clob" / f"{stamp}_prices.parquet",
                         )
-                        progress.log(f"[green]✓[/green] prices rows: {prices.height}")
+                        progress.log(
+                            f"[green]✓[/green] prices wrote {combined.height} rows"
+                        )
+                    progress.update(t_prices, visible=False)
                 else:
                     progress.log(
                         "[yellow]•[/yellow] no token_ids available for prices; skipping"
                     )
 
             if include_trades:
-                t_trades = progress.add_task("Trades backfill (data-api)", total=None)
                 progress.log("[cyan]starting trades backfill[/cyan]")
                 try:
-                    trades = await sources.clob.backfill_trades(
-                        client, market_ids=token_ids or None, since_ts=start_ts
+                    trades_df = await sources.clob.backfill_trades(
+                        client, market_ids=None, since_ts=start_ts
                     )
-                    if trades.height:
+                    if trades_df.height:
                         io.storage.write_parquet(
-                            trades,
-                            out_root / "raw" / "data_api" / f"trades_{stamp}.parquet",
+                            trades_df,
+                            out_root / "raw" / "clob" / f"{stamp}_trades.parquet",
                         )
-                        progress.log(f"[green]✓[/green] trades rows: {trades.height}")
+                        progress.log(
+                            f"[green]✓[/green] trades rows: {trades_df.height}"
+                        )
                     else:
-                        progress.log("[yellow]•[/yellow] trades: no rows in range")
+                        progress.log("[yellow]•[/yellow] trades returned 0 rows")
                 except Exception as e:
                     progress.log(f"[red]✗[/red] trades fetch failed: {e!r}")
-                finally:
-                    progress.update(t_trades, visible=False)
 
             progress.log("[bold green]Done.[/bold green]")
