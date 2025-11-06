@@ -9,7 +9,10 @@ wheels/
 # Virtual environments
 .venv
 
-# Parquet datasets
+# ruff
+.ruff_cache/
+
+# Parquet dataset outputs
 data/
 
 # uv files
