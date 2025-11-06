@@ -1,0 +1,47 @@
+"""Pipeline stage input/output models."""
+
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class FetchResult(BaseModel):
+    """Result from the Fetch stage."""
+
+    markets_path: Path | None = None
+    prices_path: Path | None = None
+    trades_path: Path | None = None
+    run_timestamp: datetime
+    market_count: int = 0
+    token_count: int = 0
+    trade_count: int = 0
+    price_point_count: int = 0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+class ProcessResult(BaseModel):
+    """Result from the Process stage."""
+
+    daily_returns_path: Path | None = None
+    trades_daily_agg_path: Path | None = None
+    run_timestamp: datetime
+    returns_count: int = 0
+    trade_agg_count: int = 0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+class AnalysisResult(BaseModel):
+    """Result from the Analysis stage."""
+
+    simulation_results: dict[str, Any] = Field(default_factory=dict)
+    optimization_results: dict[str, Any] = Field(default_factory=dict)
+    run_timestamp: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"arbitrary_types_allowed": True}
