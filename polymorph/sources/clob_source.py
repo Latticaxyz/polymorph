@@ -154,11 +154,8 @@ class CLOBSource(DataSource[pl.DataFrame]):
 
         return df
 
-    async def fetch(self, **kwargs) -> dict[str, pl.DataFrame]:
-        return {
-            "prices": pl.DataFrame(),
-            "trades": pl.DataFrame(),
-        }
+    async def fetch(self, **kwargs) -> pl.DataFrame:
+        return pl.DataFrame()
 
     async def close(self):
         if self._client is not None:
