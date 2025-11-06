@@ -30,7 +30,9 @@ class MonteCarloSimulator:
             self.processed_dir = context.data_dir / "processed"
         else:
             self.storage = None
-            self.processed_dir = Path(processed_dir) if processed_dir else Path("data/processed")
+            self.processed_dir = (
+                Path(processed_dir) if processed_dir else Path("data/processed")
+            )
 
     def load_returns(self, token_id: str) -> np.ndarray:
         returns_path = self.processed_dir / "daily_returns.parquet"
@@ -43,9 +45,7 @@ class MonteCarloSimulator:
 
         df = pl.read_parquet(returns_path)
         returns = (
-            df.filter(pl.col("token_id") == token_id)["ret"]
-            .fill_null(0.0)
-            .to_numpy()
+            df.filter(pl.col("token_id") == token_id)["ret"].fill_null(0.0).to_numpy()
         )
 
         if returns.size == 0:

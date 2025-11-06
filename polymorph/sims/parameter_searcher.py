@@ -45,13 +45,9 @@ class ParameterSearcher:
 
         return df
 
-    def default_objective(
-        self, trial: optuna.Trial, df: pl.DataFrame
-    ) -> float:
+    def default_objective(self, trial: optuna.Trial, df: pl.DataFrame) -> float:
         # Suggest parameters
-        ret_threshold = trial.suggest_float(
-            "ret_threshold", 0.005, 0.05, step=0.0025
-        )
+        ret_threshold = trial.suggest_float("ret_threshold", 0.005, 0.05, step=0.0025)
         leverage = trial.suggest_float("leverage", 0.5, 3.0)
 
         # Apply strategy
@@ -133,6 +129,5 @@ class ParameterSearcher:
         result = self.optimize(study_name, n_trials, objective_fn)
 
         print(
-            f"Best value: {result.best_value:.6f} "
-            f"with params: {result.best_params}"
+            f"Best value: {result.best_value:.6f} " f"with params: {result.best_params}"
         )

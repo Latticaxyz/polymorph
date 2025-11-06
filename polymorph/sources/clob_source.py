@@ -42,9 +42,7 @@ class CLOBSource(DataSource[pl.DataFrame]):
         return self._client
 
     @with_retry(max_attempts=5, min_wait=1.0, max_wait=10.0)
-    async def _get(
-        self, url: str, params: dict[str, Any] | None = None
-    ) -> dict | list:
+    async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict | list:
         client = await self._get_client()
         r = await client.get(url, params=params, timeout=client.timeout)
 
@@ -117,17 +115,13 @@ class CLOBSource(DataSource[pl.DataFrame]):
                 break
 
             rows.extend(batch)
-            logger.debug(
-                f"Fetched {len(batch)} trades (total: {len(rows)})"
-            )
+            logger.debug(f"Fetched {len(batch)} trades (total: {len(rows)})")
 
             offset += limit
 
             if len(batch) < limit or offset > self.max_trades:
                 if offset > self.max_trades:
-                    logger.warning(
-                        f"Reached max trades limit: {self.max_trades}"
-                    )
+                    logger.warning(f"Reached max trades limit: {self.max_trades}")
                 break
 
         if not rows:
@@ -139,9 +133,7 @@ class CLOBSource(DataSource[pl.DataFrame]):
         if "timestamp" not in df.columns and "created_at" in df.columns:
             df = df.with_columns(
                 pl.col("created_at")
-                .str.strptime(
-                    pl.Datetime, strict=False, format="%Y-%m-%dT%H:%M:%S%z"
-                )
+                .str.strptime(pl.Datetime, strict=False, format="%Y-%m-%dT%H:%M:%S%z")
                 .cast(pl.Int64)
                 .alias("timestamp")
             )

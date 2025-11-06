@@ -40,9 +40,7 @@ class GammaSource(DataSource[pl.DataFrame]):
         return self._client
 
     @with_retry(max_attempts=5, min_wait=1.0, max_wait=10.0)
-    async def _get(
-        self, url: str, params: dict[str, Any] | None = None
-    ) -> dict | list:
+    async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict | list:
         client = await self._get_client()
         r = await client.get(url, params=params, timeout=client.timeout)
         r.raise_for_status()
@@ -68,12 +66,8 @@ class GammaSource(DataSource[pl.DataFrame]):
             return [s]
         return [str(v)]
 
-    async def fetch(
-        self, active_only: bool = True, **kwargs
-    ) -> pl.DataFrame:
-        logger.info(
-            f"Fetching markets from Gamma API (active_only={active_only})"
-        )
+    async def fetch(self, active_only: bool = True, **kwargs) -> pl.DataFrame:
+        logger.info(f"Fetching markets from Gamma API (active_only={active_only})")
 
         url = f"{self.base_url}/markets"
         offset = 0
@@ -112,9 +106,7 @@ class GammaSource(DataSource[pl.DataFrame]):
         logger.info(f"Fetched {len(markets_data)} total markets")
 
         if not markets_data:
-            return pl.DataFrame(
-                {"token_ids": pl.Series([], dtype=pl.List(pl.Utf8))}
-            )
+            return pl.DataFrame({"token_ids": pl.Series([], dtype=pl.List(pl.Utf8))})
 
         df = pl.DataFrame(markets_data)
 
@@ -122,15 +114,11 @@ class GammaSource(DataSource[pl.DataFrame]):
         if "clobTokenIds" in df.columns:
             df = df.with_columns(
                 pl.col("clobTokenIds")
-                .map_elements(
-                    self._normalize_ids, return_dtype=pl.List(pl.Utf8)
-                )
+                .map_elements(self._normalize_ids, return_dtype=pl.List(pl.Utf8))
                 .alias("token_ids")
             )
         else:
-            df = df.with_columns(
-                pl.lit([]).cast(pl.List(pl.Utf8)).alias("token_ids")
-            )
+            df = df.with_columns(pl.lit([]).cast(pl.List(pl.Utf8)).alias("token_ids"))
 
         return df
 
