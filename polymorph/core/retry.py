@@ -1,5 +1,3 @@
-"""Retry utilities for robust API calls."""
-
 import asyncio
 from functools import wraps
 from typing import Any, Callable, TypeVar
@@ -29,18 +27,6 @@ def with_retry(
         asyncio.TimeoutError,
     ),
 ):
-    """Decorator to add retry logic to async functions.
-
-    Args:
-        max_attempts: Maximum number of retry attempts
-        min_wait: Minimum wait time between retries (seconds)
-        max_wait: Maximum wait time between retries (seconds)
-        retry_exceptions: Tuple of exception types to retry on
-
-    Returns:
-        Decorated function with retry logic
-    """
-
     def decorator(func: F) -> F:
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -66,6 +52,4 @@ def with_retry(
 
 
 class RateLimitError(Exception):
-    """Exception raised when API rate limit is exceeded."""
-
     pass

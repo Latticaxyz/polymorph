@@ -1,5 +1,3 @@
-"""Process stage for transforming raw data into features."""
-
 from pathlib import Path
 
 import polars as pl
@@ -13,26 +11,12 @@ logger = get_logger(__name__)
 
 
 class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
-    """Pipeline stage for processing raw data into features.
-
-    Transformations:
-    - Daily returns: Aggregate prices to daily, calculate returns
-    - Trade volume: Aggregate trades by day and market
-    """
-
     def __init__(
         self,
         context: PipelineContext,
         raw_dir: str | Path | None = None,
         processed_dir: str | Path | None = None,
     ):
-        """Initialize process stage.
-
-        Args:
-            context: Pipeline context
-            raw_dir: Directory with raw data (default: data/raw)
-            processed_dir: Directory for processed data (default: data/processed)
-        """
         super().__init__(context)
 
         # Initialize storage
@@ -49,11 +33,6 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         return "process"
 
     def build_daily_returns(self) -> ProcessResult:
-        """Build daily returns from price history.
-
-        Returns:
-            ProcessResult with daily returns path
-        """
         logger.info("Building daily returns")
 
         result = ProcessResult(
@@ -128,11 +107,6 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         return result
 
     def build_trade_aggregates(self) -> ProcessResult:
-        """Build daily trade aggregates.
-
-        Returns:
-            ProcessResult with trade aggregates path
-        """
         logger.info("Building trade aggregates")
 
         result = ProcessResult(
@@ -206,14 +180,6 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         return result
 
     async def execute(self, input_data: FetchResult | None = None) -> ProcessResult:
-        """Execute the process stage.
-
-        Args:
-            input_data: Optional fetch result from previous stage
-
-        Returns:
-            ProcessResult with paths to processed data
-        """
         logger.info("Starting process stage")
 
         # Build both transformations

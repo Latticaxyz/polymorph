@@ -1,5 +1,3 @@
-"""Simulation and analysis modules."""
-
 # Legacy functional API (for backward compatibility)
 from . import monte_carlo, param_search
 

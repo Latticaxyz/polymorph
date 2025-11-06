@@ -1,14 +1,9 @@
-"""API response models for Polymarket data sources."""
-
-from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 
 class Market(BaseModel):
-    """Market metadata from Gamma API."""
-
     id: str | None = None
     question: str | None = None
     description: str | None = None
@@ -27,7 +22,6 @@ class Market(BaseModel):
     @field_validator("clob_token_ids", mode="before")
     @classmethod
     def normalize_token_ids(cls, v: Any) -> list[str]:
-        """Normalize token IDs from various formats."""
         if v is None:
             return []
         if isinstance(v, list):
@@ -50,8 +44,6 @@ class Market(BaseModel):
 
 
 class Token(BaseModel):
-    """Token information."""
-
     token_id: str = Field(..., alias="tokenId")
     outcome: str | None = None
     market_id: str | None = Field(None, alias="marketId")
@@ -60,8 +52,6 @@ class Token(BaseModel):
 
 
 class PricePoint(BaseModel):
-    """Price history data point from CLOB API."""
-
     t: int  # timestamp
     p: float  # price
     token_id: str | None = Field(None, alias="tokenId")
@@ -70,8 +60,6 @@ class PricePoint(BaseModel):
 
 
 class Trade(BaseModel):
-    """Trade data from data API."""
-
     id: str | None = None
     market: str | None = None
     asset_id: str | None = Field(None, alias="assetId")
@@ -91,7 +79,6 @@ class Trade(BaseModel):
     @field_validator("timestamp", mode="before")
     @classmethod
     def parse_timestamp(cls, v: Any, info) -> int | None:
-        """Parse timestamp from created_at if not present."""
         if v is not None:
             return v
 

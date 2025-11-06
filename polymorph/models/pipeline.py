@@ -1,5 +1,3 @@
-"""Pipeline stage input/output models."""
-
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -8,8 +6,6 @@ from pydantic import BaseModel, Field
 
 
 class FetchResult(BaseModel):
-    """Result from the Fetch stage."""
-
     markets_path: Path | None = None
     prices_path: Path | None = None
     trades_path: Path | None = None
@@ -24,8 +20,6 @@ class FetchResult(BaseModel):
 
 
 class ProcessResult(BaseModel):
-    """Result from the Process stage."""
-
     daily_returns_path: Path | None = None
     trades_daily_agg_path: Path | None = None
     run_timestamp: datetime
@@ -37,8 +31,6 @@ class ProcessResult(BaseModel):
 
 
 class AnalysisResult(BaseModel):
-    """Result from the Analysis stage."""
-
     simulation_results: dict[str, Any] = Field(default_factory=dict)
     optimization_results: dict[str, Any] = Field(default_factory=dict)
     run_timestamp: datetime

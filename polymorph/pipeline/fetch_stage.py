@@ -1,5 +1,3 @@
-"""Fetch stage for ingesting Polymarket data."""
-
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,14 +24,6 @@ logger = get_logger(__name__)
 
 
 class FetchStage(PipelineStage[None, FetchResult]):
-    """Pipeline stage for fetching data from Polymarket sources.
-
-    Orchestrates data ingestion from:
-    - Gamma API (market metadata)
-    - CLOB API (price history)
-    - Data API (trades)
-    """
-
     def __init__(
         self,
         context: PipelineContext,
@@ -43,16 +33,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
         include_trades: bool = True,
         max_concurrency: int | None = None,
     ):
-        """Initialize fetch stage.
-
-        Args:
-            context: Pipeline context
-            n_months: Number of months of historical data to fetch
-            include_gamma: Whether to fetch market metadata
-            include_prices: Whether to fetch price history
-            include_trades: Whether to fetch trades
-            max_concurrency: Max concurrent price fetches
-        """
         super().__init__(context)
         self.n_months = n_months
         self.include_gamma = include_gamma
@@ -72,22 +52,12 @@ class FetchStage(PipelineStage[None, FetchResult]):
         return "fetch"
 
     def _ts(self, dt: datetime) -> int:
-        """Convert datetime to Unix timestamp."""
         return int(dt.timestamp())
 
     def _run_timestamp_str(self) -> str:
-        """Get formatted run timestamp."""
         return self.context.run_timestamp.strftime("%Y%m%dT%H%M%SZ")
 
     async def execute(self, input_data: None = None) -> FetchResult:
-        """Execute the fetch stage.
-
-        Args:
-            input_data: Not used (first stage in pipeline)
-
-        Returns:
-            FetchResult with paths to fetched data
-        """
         logger.info(
             f"Starting fetch stage: {self.n_months} months "
             f"(gamma={self.include_gamma}, prices={self.include_prices}, "
@@ -165,7 +135,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
                 prices_out: list[pl.DataFrame] = []
 
                 async def fetch_token_prices(token_id: str) -> None:
-                    """Fetch prices for a single token."""
                     subtask = progress.add_task(f"[cyan]{token_id}", total=None)
                     try:
                         async with sem:

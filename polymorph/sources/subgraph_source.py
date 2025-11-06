@@ -1,5 +1,3 @@
-"""Subgraph data source for GraphQL queries."""
-
 from typing import Any
 
 import httpx
@@ -16,22 +14,11 @@ DEFAULT_URL = (
 
 
 class SubgraphSource(DataSource[dict]):
-    """Data source for Polymarket GraphQL subgraph.
-
-    Provides GraphQL query interface to the Goldsky API.
-    """
-
     def __init__(
         self,
         context: PipelineContext,
         url: str | None = None,
     ):
-        """Initialize Subgraph source.
-
-        Args:
-            context: Pipeline context
-            url: Subgraph URL (defaults to Goldsky API)
-        """
         super().__init__(context)
         self.url = url or self.settings.subgraph_url or DEFAULT_URL
         self._client: httpx.AsyncClient | None = None
@@ -41,7 +28,6 @@ class SubgraphSource(DataSource[dict]):
         return "subgraph"
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=self.settings.http_timeout,
@@ -56,16 +42,6 @@ class SubgraphSource(DataSource[dict]):
         variables: dict[str, Any] | None = None,
         url: str | None = None,
     ) -> dict:
-        """Execute a GraphQL query.
-
-        Args:
-            query: GraphQL query string
-            variables: Query variables
-            url: Override URL for this query
-
-        Returns:
-            Query result dictionary
-        """
         endpoint = url or self.url
         client = await self._get_client()
 
@@ -78,31 +54,18 @@ class SubgraphSource(DataSource[dict]):
         return r.json()
 
     async def fetch(self, query: str, variables: dict | None = None, **kwargs) -> dict:
-        """Fetch data using a GraphQL query.
-
-        Args:
-            query: GraphQL query string
-            variables: Query variables
-            **kwargs: Additional parameters
-
-        Returns:
-            Query result dictionary
-        """
         logger.info("Executing subgraph query")
         result = await self.query(query, variables)
         logger.info(f"Query completed successfully")
         return result
 
     async def close(self):
-        """Close the HTTP client."""
         if self._client is not None:
             await self._client.aclose()
             self._client = None
 
     async def __aenter__(self):
-        """Context manager entry."""
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
         await self.close()

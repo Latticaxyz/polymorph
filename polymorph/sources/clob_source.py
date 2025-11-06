@@ -1,5 +1,3 @@
-"""CLOB API data source for price and trade data."""
-
 from typing import Any
 
 import httpx
@@ -7,7 +5,6 @@ import polars as pl
 
 from polymorph.core.base import DataSource, PipelineContext
 from polymorph.core.retry import with_retry, RateLimitError
-from polymorph.models.api import PricePoint, Trade
 from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -17,12 +14,6 @@ DATA_API = "https://data-api.polymarket.com"
 
 
 class CLOBSource(DataSource[pl.DataFrame]):
-    """Data source for Polymarket CLOB API.
-
-    Fetches price history and trade data from the CLOB
-    and data APIs.
-    """
-
     def __init__(
         self,
         context: PipelineContext,
@@ -31,15 +22,6 @@ class CLOBSource(DataSource[pl.DataFrame]):
         default_fidelity: int = 60,
         max_trades: int = 200_000,
     ):
-        """Initialize CLOB source.
-
-        Args:
-            context: Pipeline context
-            clob_base_url: Base URL for CLOB API
-            data_api_url: Base URL for data API
-            default_fidelity: Default price fidelity in seconds
-            max_trades: Maximum number of trades to fetch
-        """
         super().__init__(context)
         self.clob_base_url = clob_base_url
         self.data_api_url = data_api_url
@@ -52,7 +34,6 @@ class CLOBSource(DataSource[pl.DataFrame]):
         return "clob"
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=self.settings.http_timeout,
@@ -64,18 +45,6 @@ class CLOBSource(DataSource[pl.DataFrame]):
     async def _get(
         self, url: str, params: dict[str, Any] | None = None
     ) -> dict | list:
-        """Make GET request with retry logic.
-
-        Args:
-            url: URL to fetch
-            params: Query parameters
-
-        Returns:
-            JSON response
-
-        Raises:
-            RateLimitError: If rate limit is exceeded
-        """
         client = await self._get_client()
         r = await client.get(url, params=params, timeout=client.timeout)
 
@@ -92,17 +61,6 @@ class CLOBSource(DataSource[pl.DataFrame]):
         end_ts: int,
         fidelity: int | None = None,
     ) -> pl.DataFrame:
-        """Fetch price history for a token.
-
-        Args:
-            token_id: Token ID to fetch prices for
-            start_ts: Start timestamp (Unix seconds)
-            end_ts: End timestamp (Unix seconds)
-            fidelity: Price fidelity in seconds (default: 60)
-
-        Returns:
-            DataFrame with columns: t, p, token_id
-        """
         url = f"{self.clob_base_url}/prices-history"
         params = {
             "market": token_id,
@@ -127,16 +85,6 @@ class CLOBSource(DataSource[pl.DataFrame]):
         offset: int = 0,
         market_ids: list[str] | None = None,
     ) -> list[dict]:
-        """Fetch a page of trades.
-
-        Args:
-            limit: Maximum number of trades per page
-            offset: Offset for pagination
-            market_ids: Filter by market IDs
-
-        Returns:
-            List of trade dictionaries
-        """
         params: dict[str, str | int] = {"limit": limit, "offset": offset}
         if market_ids:
             params["market"] = ",".join(market_ids)
@@ -151,15 +99,6 @@ class CLOBSource(DataSource[pl.DataFrame]):
         market_ids: list[str] | None = None,
         since_ts: int | None = None,
     ) -> pl.DataFrame:
-        """Fetch trades with pagination.
-
-        Args:
-            market_ids: Filter by market IDs
-            since_ts: Only fetch trades after this timestamp
-
-        Returns:
-            DataFrame with trade data
-        """
         logger.info(
             f"Fetching trades (markets={len(market_ids) if market_ids else 'all'})"
         )
@@ -216,32 +155,18 @@ class CLOBSource(DataSource[pl.DataFrame]):
         return df
 
     async def fetch(self, **kwargs) -> dict[str, pl.DataFrame]:
-        """Fetch all data from CLOB source.
-
-        This is a placeholder - typically you'd call fetch_prices_history
-        or fetch_trades directly based on your needs.
-
-        Args:
-            **kwargs: Additional parameters
-
-        Returns:
-            Dictionary with 'prices' and 'trades' DataFrames
-        """
         return {
             "prices": pl.DataFrame(),
             "trades": pl.DataFrame(),
         }
 
     async def close(self):
-        """Close the HTTP client."""
         if self._client is not None:
             await self._client.aclose()
             self._client = None
 
     async def __aenter__(self):
-        """Context manager entry."""
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
         await self.close()

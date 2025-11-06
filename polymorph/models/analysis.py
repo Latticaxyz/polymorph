@@ -1,14 +1,9 @@
-"""Analysis result models for simulations and optimization."""
-
 from typing import Any
 
-import numpy as np
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class SimulationResult(BaseModel):
-    """Result from Monte Carlo simulation."""
-
     token_id: str
     n_trials: int
     n_days: int
@@ -23,8 +18,6 @@ class SimulationResult(BaseModel):
 
 
 class OptimizationResult(BaseModel):
-    """Result from parameter search optimization."""
-
     study_name: str
     n_trials: int
     best_params: dict[str, Any]

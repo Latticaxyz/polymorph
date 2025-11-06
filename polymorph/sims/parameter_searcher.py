@@ -1,5 +1,3 @@
-"""Parameter search optimization using Optuna."""
-
 from pathlib import Path
 from typing import Any, Callable
 
@@ -16,22 +14,11 @@ logger = get_logger(__name__)
 
 
 class ParameterSearcher:
-    """Parameter search optimizer using Optuna.
-
-    Optimizes strategy parameters to maximize PnL on historical data.
-    """
-
     def __init__(
         self,
         context: PipelineContext | None = None,
         processed_dir: str | Path | None = None,
     ):
-        """Initialize parameter searcher.
-
-        Args:
-            context: Pipeline context (optional)
-            processed_dir: Directory with processed data
-        """
         self.context = context
 
         # Set up storage
@@ -45,14 +32,6 @@ class ParameterSearcher:
             )
 
     def load_returns(self) -> pl.DataFrame:
-        """Load daily returns data.
-
-        Returns:
-            DataFrame with daily returns
-
-        Raises:
-            FileNotFoundError: If daily returns file not found
-        """
         returns_path = self.processed_dir / "daily_returns.parquet"
 
         if not returns_path.exists():
@@ -69,17 +48,6 @@ class ParameterSearcher:
     def default_objective(
         self, trial: optuna.Trial, df: pl.DataFrame
     ) -> float:
-        """Default objective function: simple threshold + leverage strategy.
-
-        Strategy: Only trade when |return| < threshold, use leverage multiplier.
-
-        Args:
-            trial: Optuna trial for parameter suggestions
-            df: DataFrame with returns
-
-        Returns:
-            PnL (to be maximized)
-        """
         # Suggest parameters
         ret_threshold = trial.suggest_float(
             "ret_threshold", 0.005, 0.05, step=0.0025
@@ -105,18 +73,6 @@ class ParameterSearcher:
         direction: str = "maximize",
         sampler: optuna.samplers.BaseSampler | None = None,
     ) -> OptimizationResult:
-        """Run parameter optimization.
-
-        Args:
-            study_name: Name for the optimization study
-            n_trials: Number of optimization trials
-            objective_fn: Custom objective function (optional, uses default if None)
-            direction: Optimization direction ("maximize" or "minimize")
-            sampler: Optuna sampler (optional)
-
-        Returns:
-            OptimizationResult with best parameters and history
-        """
         logger.info(
             f"Starting optimization: study={study_name}, trials={n_trials}, "
             f"direction={direction}"
@@ -174,15 +130,6 @@ class ParameterSearcher:
         n_trials: int,
         objective_fn: Callable[[optuna.Trial, pl.DataFrame], float] | None = None,
     ) -> None:
-        """Run optimization and print results.
-
-        Convenience method for backward compatibility.
-
-        Args:
-            study_name: Name for the optimization study
-            n_trials: Number of optimization trials
-            objective_fn: Custom objective function (optional)
-        """
         result = self.optimize(study_name, n_trials, objective_fn)
 
         print(

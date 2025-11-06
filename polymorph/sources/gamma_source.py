@@ -1,5 +1,3 @@
-"""Gamma API data source for market metadata."""
-
 import json
 from typing import Any
 
@@ -8,7 +6,6 @@ import polars as pl
 
 from polymorph.core.base import DataSource, PipelineContext
 from polymorph.core.retry import with_retry
-from polymorph.models.api import Market
 from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -17,12 +14,6 @@ GAMMA_BASE = "https://gamma-api.polymarket.com"
 
 
 class GammaSource(DataSource[pl.DataFrame]):
-    """Data source for Polymarket Gamma API.
-
-    Fetches market metadata including market information,
-    token IDs, and outcomes.
-    """
-
     def __init__(
         self,
         context: PipelineContext,
@@ -30,14 +21,6 @@ class GammaSource(DataSource[pl.DataFrame]):
         page_size: int = 250,
         max_pages: int = 200,
     ):
-        """Initialize Gamma source.
-
-        Args:
-            context: Pipeline context
-            base_url: Base URL for Gamma API
-            page_size: Number of items per page
-            max_pages: Maximum number of pages to fetch
-        """
         super().__init__(context)
         self.base_url = base_url
         self.page_size = page_size
@@ -49,7 +32,6 @@ class GammaSource(DataSource[pl.DataFrame]):
         return "gamma"
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client."""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=self.settings.http_timeout,
@@ -61,15 +43,6 @@ class GammaSource(DataSource[pl.DataFrame]):
     async def _get(
         self, url: str, params: dict[str, Any] | None = None
     ) -> dict | list:
-        """Make GET request with retry logic.
-
-        Args:
-            url: URL to fetch
-            params: Query parameters
-
-        Returns:
-            JSON response
-        """
         client = await self._get_client()
         r = await client.get(url, params=params, timeout=client.timeout)
         r.raise_for_status()
@@ -77,14 +50,6 @@ class GammaSource(DataSource[pl.DataFrame]):
 
     @staticmethod
     def _normalize_ids(v: Any) -> list[str]:
-        """Normalize token IDs from various formats.
-
-        Args:
-            v: Value to normalize (string, list, or JSON array)
-
-        Returns:
-            List of token ID strings
-        """
         if v is None:
             return []
         if isinstance(v, list):
@@ -106,15 +71,6 @@ class GammaSource(DataSource[pl.DataFrame]):
     async def fetch(
         self, active_only: bool = True, **kwargs
     ) -> pl.DataFrame:
-        """Fetch market metadata from Gamma API.
-
-        Args:
-            active_only: If True, only fetch non-closed markets
-            **kwargs: Additional parameters
-
-        Returns:
-            DataFrame with market metadata
-        """
         logger.info(
             f"Fetching markets from Gamma API (active_only={active_only})"
         )
@@ -179,15 +135,12 @@ class GammaSource(DataSource[pl.DataFrame]):
         return df
 
     async def close(self):
-        """Close the HTTP client."""
         if self._client is not None:
             await self._client.aclose()
             self._client = None
 
     async def __aenter__(self):
-        """Context manager entry."""
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
         await self.close()

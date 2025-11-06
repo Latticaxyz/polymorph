@@ -1,5 +1,3 @@
-"""Core abstractions for the polymorph pipeline."""
-
 from polymorph.core.base import DataSource, PipelineStage, PipelineContext
 from polymorph.core.storage import StorageBackend, ParquetStorage
 from polymorph.core.retry import with_retry

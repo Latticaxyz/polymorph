@@ -1,5 +1,3 @@
-"""Data sources for fetching Polymarket data."""
-
 # Legacy functional API (for backward compatibility)
 from . import clob, gamma, subgraph
 

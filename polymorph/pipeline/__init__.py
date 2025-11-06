@@ -1,5 +1,3 @@
-"""Pipeline stages for data processing."""
-
 # Legacy functional API (for backward compatibility)
 from . import fetch, process
 

@@ -1,5 +1,3 @@
-"""Data models for the polymorph pipeline."""
-
 from polymorph.models.api import Market, Token, Trade, PricePoint
 from polymorph.models.pipeline import FetchResult, ProcessResult, AnalysisResult
 from polymorph.models.analysis import SimulationResult, OptimizationResult

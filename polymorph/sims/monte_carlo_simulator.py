@@ -1,5 +1,3 @@
-"""Monte Carlo simulation for market price paths."""
-
 from pathlib import Path
 from typing import Any
 
@@ -15,12 +13,6 @@ logger = get_logger(__name__)
 
 
 class MonteCarloSimulator:
-    """Monte Carlo simulator for market price paths.
-
-    Simulates price paths by sampling from empirical distribution
-    of historical daily returns.
-    """
-
     def __init__(
         self,
         context: PipelineContext | None = None,
@@ -28,14 +20,6 @@ class MonteCarloSimulator:
         clip_min: float = -0.99,
         clip_max: float = 1.0,
     ):
-        """Initialize Monte Carlo simulator.
-
-        Args:
-            context: Pipeline context (optional)
-            processed_dir: Directory with processed data
-            clip_min: Minimum return to clip to (default: -99%)
-            clip_max: Maximum return to clip to (default: +100%)
-        """
         self.context = context
         self.clip_min = clip_min
         self.clip_max = clip_max
@@ -49,18 +33,6 @@ class MonteCarloSimulator:
             self.processed_dir = Path(processed_dir) if processed_dir else Path("data/processed")
 
     def load_returns(self, token_id: str) -> np.ndarray:
-        """Load historical returns for a token.
-
-        Args:
-            token_id: Token ID to load returns for
-
-        Returns:
-            Array of historical returns
-
-        Raises:
-            FileNotFoundError: If daily returns file not found
-            ValueError: If no returns found for token
-        """
         returns_path = self.processed_dir / "daily_returns.parquet"
 
         if not returns_path.exists():
@@ -96,17 +68,6 @@ class MonteCarloSimulator:
         horizon_days: int,
         initial_price: float | None = None,
     ) -> SimulationResult:
-        """Run Monte Carlo simulation for a token.
-
-        Args:
-            token_id: Token ID to simulate
-            trials: Number of simulation trials
-            horizon_days: Number of days to simulate forward
-            initial_price: Initial price (optional, for metadata)
-
-        Returns:
-            SimulationResult with statistics
-        """
         logger.info(
             f"Running Monte Carlo: token={token_id}, trials={trials}, "
             f"horizon={horizon_days} days"
@@ -158,19 +119,6 @@ class MonteCarloSimulator:
         horizon_days: int = 30,
         initial_price: float | None = None,
     ) -> dict[str, Any]:
-        """Run simulation and return results as dictionary.
-
-        Convenience method for backward compatibility.
-
-        Args:
-            token_id: Token ID to simulate
-            trials: Number of simulation trials
-            horizon_days: Number of days to simulate forward
-            initial_price: Initial price (optional)
-
-        Returns:
-            Dictionary with simulation results
-        """
         result = self.simulate(token_id, trials, horizon_days, initial_price)
 
         return {

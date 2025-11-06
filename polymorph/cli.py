@@ -16,14 +16,6 @@ console = Console()
 
 
 def create_context(data_dir: Path) -> PipelineContext:
-    """Create a pipeline context.
-
-    Args:
-        data_dir: Data directory path
-
-    Returns:
-        PipelineContext instance
-    """
     return PipelineContext(
         settings=settings,
         run_timestamp=datetime.now(timezone.utc),
@@ -46,7 +38,6 @@ def fetch(
     include_gamma: bool = typer.Option(True, help="Fetch market metadata from Gamma"),
     max_concurrency: int = typer.Option(None, help="Override default concurrency"),
 ):
-    """Fetch last N months of Polymarket data into partitioned Parquet files."""
     context = create_context(out)
     stage = FetchStage(
         context=context,
@@ -65,7 +56,6 @@ def process(
     in_: Path = typer.Option(Path("data/raw"), "--in"),
     out: Path = typer.Option(Path("data/processed"), "--out"),
 ):
-    """Build features/aggregations from raw parquet."""
     context = create_context(Path("data"))
     stage = ProcessStage(context=context, raw_dir=in_, processed_dir=out)
     asyncio.run(stage.execute())
@@ -83,7 +73,6 @@ def mc_run(
     horizon_days: int = typer.Option(7, "--horizon-days"),
     in_: Path = typer.Option(Path("data/processed"), "--in"),
 ):
-    """Run a simple MC on empirical daily return/jump distribution for a market token."""
     simulator = MonteCarloSimulator(processed_dir=in_)
     result = simulator.run(market_id, trials, horizon_days)
 
@@ -101,7 +90,6 @@ def tune(
     n_trials: int = typer.Option(20, "--n-trials"),
     in_: Path = typer.Option(Path("data/processed"), "--in"),
 ):
-    """Run Optuna parameter search using a simple lending-PnL objective over processed data."""
     searcher = ParameterSearcher(processed_dir=in_)
     searcher.run(study, n_trials)
 
