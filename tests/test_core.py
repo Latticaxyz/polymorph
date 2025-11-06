@@ -32,10 +32,11 @@ class TestPipelineContext:
     def test_data_dir_conversion(self):
         """Test that string data_dir is converted to Path."""
         settings = Settings()
+        data_path = Path(__file__).parent.parent / "data"
         context = PipelineContext(
             settings=settings,
             run_timestamp=datetime.now(timezone.utc),
-            data_dir="data",
+            data_dir=data_path,
         )
 
         assert isinstance(context.data_dir, Path)
