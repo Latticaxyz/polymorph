@@ -1,7 +1,6 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import polars as pl
 from rich.progress import (
