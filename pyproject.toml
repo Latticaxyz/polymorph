@@ -5,6 +5,7 @@ description = "Polymarket data scraper and pipeline"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "duckdb>=1.1.0",
   "httpx[http2]>=0.28.1",
   "joblib>=1.5.2",
   "matplotlib>=3.10.7",
@@ -25,11 +26,13 @@ polymorph = "polymorph.cli:main"
 
 [dependency-groups]
 dev = [
+  "black>=25.9.0",
   "mypy>=1.18.2",
   "pytest>=8.4.2",
   "ruff>=0.14.3",
   "types-requests>=2.32.4.20250913",
 ]
+distributed = ["ray[default]>=2.9.0"]
 
 [build-system]
 requires = ["hatchling"]

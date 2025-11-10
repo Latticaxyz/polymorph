@@ -6,10 +6,16 @@ dist/
 wheels/
 *.egg-info
 
+# mypy
+.mypy.cache/
+
 # Virtual environments
 .venv
 
-# Parquet datasets
+# ruff
+.ruff_cache/
+
+# Parquet dataset outputs
 data/
 
 # uv files

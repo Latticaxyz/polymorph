@@ -1,3 +1,7 @@
-from . import fetch, process
+from .fetch import FetchStage
+from .process import ProcessStage
 
-__all__ = ["fetch", "process"]
+__all__ = [
+    "FetchStage",
+    "ProcessStage",
+]

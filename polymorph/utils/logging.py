@@ -10,3 +10,7 @@ def setup(level: int = logging.INFO) -> None:
         datefmt="[%X]",
         handlers=[RichHandler(rich_tracebacks=True)],
     )
+
+
+def get_logger(name: str) -> logging.Logger:
+    return logging.getLogger(name)

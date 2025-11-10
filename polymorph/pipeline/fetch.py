@@ -1,8 +1,7 @@
-from __future__ import annotations
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-import httpx
+
 import polars as pl
 from rich.progress import (
     Progress,
@@ -11,38 +10,66 @@ from rich.progress import (
     BarColumn,
     TimeElapsedColumn,
 )
-from polymorph import sources, io, config, utils
+
+from polymorph.core.base import PipelineStage, PipelineContext
+from polymorph.core.storage import ParquetStorage
+from polymorph.models.pipeline import FetchResult
+from polymorph.sources.gamma import Gamma
+from polymorph.sources.clob import CLOB
+from polymorph.utils.logging import get_logger
+from polymorph.utils.time import months_ago, utc
+
+logger = get_logger(__name__)
 
 
-def _ts(dt: datetime) -> int:
-    return int(dt.timestamp())
+class FetchStage(PipelineStage[None, FetchResult]):
+    def __init__(
+        self,
+        context: PipelineContext,
+        n_months: int = 1,
+        include_gamma: bool = True,
+        include_prices: bool = True,
+        include_trades: bool = True,
+        max_concurrency: int | None = None,
+    ):
+        super().__init__(context)
+        self.n_months = n_months
+        self.include_gamma = include_gamma
+        self.include_prices = include_prices
+        self.include_trades = include_trades
+        self.max_concurrency = max_concurrency or context.settings.max_concurrency
 
+        self.storage = ParquetStorage(context.data_dir)
 
-def _run_ts() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        self.gamma_source = Gamma(context)
+        self.clob_source = CLOB(context)
 
+    @property
+    def name(self) -> str:
+        return "fetch"
 
-async def last_n_months(
-    n_months: int,
-    out_root: Path,
-    include_trades: bool,
-    include_prices: bool,
-    include_gamma: bool,
-    max_concurrency: int | None,
-) -> None:
-    out_root = out_root.resolve()
-    stamp = _run_ts()
-    http_timeout = httpx.Timeout(
-        connect=config.settings.http_timeout,
-        read=config.settings.http_timeout,
-        write=config.settings.http_timeout,
-        pool=config.settings.http_timeout,
-    )
-    concurrency = max_concurrency or config.settings.max_concurrency
-    start = utils.time.months_ago(n_months)
-    end = utils.time.utc()
-    start_ts, end_ts = _ts(start), _ts(end)
-    async with httpx.AsyncClient(timeout=http_timeout, http2=True) as client:
+    def _ts(self, dt: datetime) -> int:
+        return int(dt.timestamp())
+
+    def _run_timestamp_str(self) -> str:
+        return self.context.run_timestamp.strftime("%Y%m%dT%H%M%SZ")
+
+    async def execute(self, input_data: None = None) -> FetchResult:
+        logger.info(
+            f"Starting fetch stage: {self.n_months} months "
+            f"(gamma={self.include_gamma}, prices={self.include_prices}, "
+            f"trades={self.include_trades})"
+        )
+
+        stamp = self._run_timestamp_str()
+        start = months_ago(self.n_months)
+        end = utc()
+        start_ts, end_ts = self._ts(start), self._ts(end)
+
+        result = FetchResult(
+            run_timestamp=self.context.run_timestamp,
+        )
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[bold]{task.description}"),
@@ -53,16 +80,20 @@ async def last_n_months(
             market_df = pl.DataFrame()
             token_ids: list[str] = []
 
-            if include_gamma:
-                t_markets = progress.add_task("Fetching markets (gamma)", total=None)
-                progress.log("[cyan]starting gamma fetch[/cyan]")
+            if self.include_gamma:
+                task = progress.add_task("Fetching markets (gamma)", total=None)
+                progress.log("[cyan]Starting gamma fetch[/cyan]")
+
                 try:
-                    market_df = await sources.gamma.fetch_markets(client)
-                    if market_df.height:
-                        io.storage.write_parquet(
-                            market_df,
-                            out_root / "raw" / "gamma" / f"{stamp}_markets.parquet",
-                        )
+                    async with self.gamma_source:
+                        market_df = await self.gamma_source.fetch()
+
+                    if market_df.height > 0:
+                        markets_path = Path("raw/gamma") / f"{stamp}_markets.parquet"
+                        self.storage.write(market_df, markets_path)
+                        result.markets_path = self.storage._resolve_path(markets_path)
+                        result.market_count = market_df.height
+
                         if "token_ids" in market_df.columns:
                             tokens_df = (
                                 market_df.select(pl.col("token_ids"))
@@ -73,92 +104,105 @@ async def last_n_months(
                             token_ids = [
                                 str(x) for x in tokens_df["token_ids"].to_list() if x
                             ]
-                        elif "outcomes" in market_df.columns:
-                            tokens_df = (
-                                market_df.select(pl.col("outcomes"))
-                                .explode("outcomes")
-                                .select(
-                                    pl.col("outcomes")
-                                    .struct.field("tokenId")
-                                    .alias("token_id")
-                                )
-                                .drop_nulls()
-                                .unique()
-                            )
-                            token_ids = [
-                                str(x) for x in tokens_df["token_id"].to_list() if x
-                            ]
+                            result.token_count = len(token_ids)
+
                         progress.log(
-                            f"[green]✓[/green] gamma markets: {market_df.height}, tokens: {len(token_ids)}"
+                            f"[green]✓[/green] Gamma: {result.market_count} markets, "
+                            f"{result.token_count} tokens"
                         )
                     else:
-                        progress.log("[yellow]•[/yellow] gamma markets returned 0 rows")
+                        progress.log("[yellow]•[/yellow] Gamma returned 0 rows")
+
                 except Exception as e:
-                    progress.log(f"[red]✗[/red] gamma fetch failed: {e!r}")
+                    logger.error(f"Gamma fetch failed: {e}", exc_info=True)
+                    progress.log(f"[red]✗[/red] Gamma fetch failed: {e!r}")
+
                 finally:
-                    progress.update(t_markets, visible=False)
+                    progress.update(task, visible=False)
 
-            if include_prices:
-                if token_ids:
-                    t_prices = progress.add_task(
-                        f"Prices-history {n_months}m", total=len(token_ids)
-                    )
-                    sem = asyncio.Semaphore(concurrency)
-                    prices_out: list[pl.DataFrame] = []
+            if self.include_prices and token_ids:
+                task = progress.add_task(
+                    f"Prices history ({self.n_months}m)", total=len(token_ids)
+                )
 
-                    async def worker(tok: str) -> None:
-                        sub = progress.add_task(f"[cyan]{tok}", total=None)
-                        try:
-                            async with sem:
-                                df = await sources.clob.fetch_prices_history(
-                                    client, tok, start_ts, end_ts, fidelity=60
+                sem = asyncio.Semaphore(self.max_concurrency)
+                prices_out: list[pl.DataFrame] = []
+
+                async def fetch_token_prices(token_id: str) -> None:
+                    subtask = progress.add_task(f"[cyan]{token_id}", total=None)
+                    try:
+                        async with sem:
+                            async with self.clob_source:
+                                df = await self.clob_source.fetch_prices_history(
+                                    token_id, start_ts, end_ts, fidelity=60
                                 )
-                            if df.height:
-                                prices_out.append(df)
-                                progress.log(
-                                    f"[green]✓[/green] {tok} prices rows={df.height}"
-                                )
-                            else:
-                                progress.log(f"[yellow]•[/yellow] {tok} empty")
-                        except Exception as e:
-                            progress.log(f"[red]✗[/red] {tok} error: {e!r}")
-                        finally:
-                            progress.update(sub, visible=False)
-                            progress.advance(t_prices)
 
-                    await asyncio.gather(*[worker(t) for t in token_ids])
-                    if prices_out:
-                        combined = pl.concat(prices_out, how="vertical")
-                        io.storage.write_parquet(
-                            combined,
-                            out_root / "raw" / "clob" / f"{stamp}_prices.parquet",
+                        if df.height > 0:
+                            prices_out.append(df)
+                            progress.log(
+                                f"[green]✓[/green] {token_id}: {df.height} prices"
+                            )
+                        else:
+                            progress.log(f"[yellow]•[/yellow] {token_id}: empty")
+
+                    except Exception as e:
+                        logger.error(
+                            f"Price fetch failed for {token_id}: {e}", exc_info=True
                         )
-                        progress.log(
-                            f"[green]✓[/green] prices wrote {combined.height} rows"
-                        )
-                    progress.update(t_prices, visible=False)
-                else:
+                        progress.log(f"[red]✗[/red] {token_id}: {e!r}")
+
+                    finally:
+                        progress.update(subtask, visible=False)
+                        progress.advance(task)
+
+                await asyncio.gather(*[fetch_token_prices(t) for t in token_ids])
+
+                if prices_out:
+                    combined = pl.concat(prices_out, how="vertical")
+                    prices_path = Path("raw/clob") / f"{stamp}_prices.parquet"
+                    self.storage.write(combined, prices_path)
+                    result.prices_path = self.storage._resolve_path(prices_path)
+                    result.price_point_count = combined.height
                     progress.log(
-                        "[yellow]•[/yellow] no token_ids available for prices; skipping"
+                        f"[green]✓[/green] Prices: {result.price_point_count} rows"
                     )
 
-            if include_trades:
-                progress.log("[cyan]starting trades backfill[/cyan]")
+                progress.update(task, visible=False)
+
+            elif self.include_prices and not token_ids:
+                progress.log(
+                    "[yellow]•[/yellow] No token IDs available; skipping prices"
+                )
+
+            if self.include_trades:
+                progress.log("[cyan]Starting trades backfill[/cyan]")
                 try:
-                    trades_df = await sources.clob.backfill_trades(
-                        client, market_ids=None, since_ts=start_ts
-                    )
-                    if trades_df.height:
-                        io.storage.write_parquet(
-                            trades_df,
-                            out_root / "raw" / "clob" / f"{stamp}_trades.parquet",
+                    async with self.clob_source:
+                        trades_df = await self.clob_source.fetch_trades(
+                            market_ids=None, since_ts=start_ts
                         )
+
+                    if trades_df.height > 0:
+                        trades_path = Path("raw/clob") / f"{stamp}_trades.parquet"
+                        self.storage.write(trades_df, trades_path)
+                        result.trades_path = self.storage._resolve_path(trades_path)
+                        result.trade_count = trades_df.height
                         progress.log(
-                            f"[green]✓[/green] trades rows: {trades_df.height}"
+                            f"[green]✓[/green] Trades: {result.trade_count} rows"
                         )
                     else:
-                        progress.log("[yellow]•[/yellow] trades returned 0 rows")
-                except Exception as e:
-                    progress.log(f"[red]✗[/red] trades fetch failed: {e!r}")
+                        progress.log("[yellow]•[/yellow] Trades returned 0 rows")
 
-            progress.log("[bold green]Done.[/bold green]")
+                except Exception as e:
+                    logger.error(f"Trades fetch failed: {e}", exc_info=True)
+                    progress.log(f"[red]✗[/red] Trades fetch failed: {e!r}")
+
+            progress.log("[bold green]Fetch complete[/bold green]")
+
+        logger.info(
+            f"Fetch stage complete: {result.market_count} markets, "
+            f"{result.token_count} tokens, {result.price_point_count} prices, "
+            f"{result.trade_count} trades"
+        )
+
+        return result

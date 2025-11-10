@@ -1,3 +1,10 @@
-from . import clob, gamma, subgraph
+from .gamma import Gamma
+from .clob import CLOB
 
-__all__ = ["clob", "gamma", "subgraph"]
+# from .subgraph import Subgraph
+
+__all__ = [
+    "Gamma",
+    "CLOB",
+    # "Subgraph",
+]
