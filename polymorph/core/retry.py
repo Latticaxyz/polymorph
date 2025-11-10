@@ -1,6 +1,6 @@
 import asyncio
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, cast
 
 from tenacity import (
     AsyncRetrying,
@@ -46,7 +46,7 @@ def with_retry(
                         )
                         raise
 
-        return wrapper
+        return cast(F, wrapper)
 
     return decorator
 
