@@ -7,7 +7,7 @@ wheels/
 *.egg-info
 
 # mypy
-.mypy.cache/
+.mypy_cache/
 
 # Virtual environments
 .venv
