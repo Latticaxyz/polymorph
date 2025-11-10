@@ -88,11 +88,7 @@ def version() -> None:
     console.print(table)
 
 
-fetch_app = typer.Typer(help="Fetch data and store to Parquet files")
-app.add_typer(fetch_app, name="fetch")
-
-
-@fetch_app.command()
+@app.command(help="Fetch data and store to Parquet files")
 def fetch(
     months: int = typer.Option(
         1, "--months", "-m", help="Number of months to backfill"
@@ -132,13 +128,7 @@ def fetch(
     console.print("Fetch complete.")
 
 
-process_app = typer.Typer(
-    help="Processing tools and algorithms (ex. Monte Carlo simulations"
-)
-app.add_typer(process_app, name="process")
-
-
-@process_app.command()
+@app.command(help="Processing tools and algorithms (ex. Monte Carlo simulations")
 def process(
     in_: Path = typer.Option(
         Path(settings.data_dir) / "raw",
@@ -183,11 +173,7 @@ def mc_run(
     console.print(table)
 
 
-tuner_app = typer.Typer(help="Hyperparameter searchig and tuning (Optima)")
-app.add_typer(tuner_app, name="tune")
-
-
-@tuner_app.command()
+@app.command(help="Hyperparameter searchig and tuning (Optima)")
 def tune(
     study: str = typer.Option("polymorph", "--study"),
     n_trials: int = typer.Option(20, "--n-trials"),
