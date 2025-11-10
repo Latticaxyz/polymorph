@@ -19,10 +19,8 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
     ):
         super().__init__(context)
 
-        # Initialize storage
         self.storage = ParquetStorage(context.data_dir)
 
-        # Set directories
         self.raw_dir = Path(raw_dir) if raw_dir else context.data_dir / "raw"
         self.processed_dir = (
             Path(processed_dir) if processed_dir else context.data_dir / "processed"
@@ -39,7 +37,6 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             run_timestamp=self.context.run_timestamp,
         )
 
-        # Look for prices in raw/clob directory
         prices_dir = self.raw_dir / "clob"
         prices_pattern = prices_dir / "*_prices.parquet"
 
@@ -47,19 +44,16 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             logger.warning(f"Prices directory does not exist: {prices_dir}")
             return result
 
-        # Try scanning all price files
         try:
             lf = self.storage.scan(prices_pattern)
         except Exception as e:
             logger.warning(f"Could not scan prices: {e}")
             return result
 
-        # Check if we have the required columns
         schema = lf.collect_schema()
         required_cols = {"t", "p", "token_id"}
 
         if not required_cols.issubset(schema.names()):
-            # Try alternate column names (timestamp, price)
             alt_cols = {"timestamp", "price", "token_id"}
             if not alt_cols.issubset(schema.names()):
                 logger.warning(
@@ -68,15 +62,12 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
                 )
                 return result
 
-            # Use alternate column names
             timestamp_col = "timestamp"
             price_col = "price"
         else:
-            # Use standard column names
             timestamp_col = "t"
             price_col = "p"
 
-        # Build daily returns
         daily_returns = (
             lf.with_columns(
                 (pl.col(timestamp_col).cast(pl.Int64) // 86_400 * 86_400).alias(
@@ -91,8 +82,6 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             )
             .collect()
         )
-
-        # Write to processed directory
         self.processed_dir.mkdir(parents=True, exist_ok=True)
         output_path = self.processed_dir / "daily_returns.parquet"
 
@@ -113,11 +102,9 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             run_timestamp=self.context.run_timestamp,
         )
 
-        # Look for trades in raw/clob directory
         trades_dir = self.raw_dir / "clob"
         trades_pattern = trades_dir / "*_trades.parquet"
 
-        # Also check data_api directory (legacy path)
         if not trades_dir.exists():
             trades_dir = self.raw_dir / "data_api"
             trades_pattern = trades_dir / "trades.parquet"
@@ -126,14 +113,12 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             logger.warning(f"Trades directory does not exist: {trades_dir}")
             return result
 
-        # Try scanning trade files
         try:
             lf = self.storage.scan(trades_pattern)
         except Exception as e:
             logger.warning(f"Could not scan trades: {e}")
             return result
 
-        # Check required columns
         schema = lf.collect_schema()
         required_cols = {"timestamp", "size", "price", "conditionId"}
 
@@ -144,7 +129,6 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             )
             return result
 
-        # Build daily aggregates
         trade_agg = (
             lf.with_columns(
                 [
@@ -165,7 +149,6 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             .collect()
         )
 
-        # Write to processed directory
         self.processed_dir.mkdir(parents=True, exist_ok=True)
         output_path = self.processed_dir / "trades_daily_agg.parquet"
 
@@ -182,11 +165,9 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
     async def execute(self, input_data: FetchResult | None = None) -> ProcessResult:
         logger.info("Starting process stage")
 
-        # Build both transformations
         returns_result = self.build_daily_returns()
         trades_result = self.build_trade_aggregates()
 
-        # Combine results
         result = ProcessResult(
             run_timestamp=self.context.run_timestamp,
             daily_returns_path=returns_result.daily_returns_path,

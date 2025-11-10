@@ -1,5 +1,5 @@
-from .fetch_stage import FetchStage
-from .process_stage import ProcessStage
+from .fetch import FetchStage
+from .process import ProcessStage
 
 __all__ = [
     "FetchStage",

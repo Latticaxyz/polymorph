@@ -14,8 +14,8 @@ from rich.progress import (
 from polymorph.core.base import PipelineStage, PipelineContext
 from polymorph.core.storage import ParquetStorage
 from polymorph.models.pipeline import FetchResult
-from polymorph.sources.gamma_source import GammaSource
-from polymorph.sources.clob_source import CLOBSource
+from polymorph.sources.gamma import Gamma
+from polymorph.sources.clob import CLOB
 from polymorph.utils.logging import get_logger
 from polymorph.utils.time import months_ago, utc
 
@@ -39,12 +39,10 @@ class FetchStage(PipelineStage[None, FetchResult]):
         self.include_trades = include_trades
         self.max_concurrency = max_concurrency or context.settings.max_concurrency
 
-        # Initialize storage
         self.storage = ParquetStorage(context.data_dir)
 
-        # Initialize data sources
-        self.gamma_source = GammaSource(context)
-        self.clob_source = CLOBSource(context)
+        self.gamma_source = Gamma(context)
+        self.clob_source = CLOB(context)
 
     @property
     def name(self) -> str:
@@ -82,7 +80,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
             market_df = pl.DataFrame()
             token_ids: list[str] = []
 
-            # Fetch market metadata from Gamma
             if self.include_gamma:
                 task = progress.add_task("Fetching markets (gamma)", total=None)
                 progress.log("[cyan]Starting gamma fetch[/cyan]")
@@ -97,7 +94,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         result.markets_path = self.storage._resolve_path(markets_path)
                         result.market_count = market_df.height
 
-                        # Extract token IDs
                         if "token_ids" in market_df.columns:
                             tokens_df = (
                                 market_df.select(pl.col("token_ids"))
@@ -124,7 +120,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
                 finally:
                     progress.update(task, visible=False)
 
-            # Fetch price history from CLOB
             if self.include_prices and token_ids:
                 task = progress.add_task(
                     f"Prices history ({self.n_months}m)", total=len(token_ids)
@@ -179,7 +174,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
                     "[yellow]•[/yellow] No token IDs available; skipping prices"
                 )
 
-            # Fetch trades from Data API
             if self.include_trades:
                 progress.log("[cyan]Starting trades backfill[/cyan]")
                 try:
