@@ -1,18 +1,10 @@
-# Legacy functional API (for backward compatibility)
-from . import clob, gamma, subgraph
+from .gamma import Gamma
+from .clob import CLOB
 
-# New class-based API
-from .gamma_source import GammaSource
-from .clob_source import CLOBSource
-from .subgraph_source import SubgraphSource
+# from .subgraph import Subgraph
 
 __all__ = [
-    # Legacy modules
-    "clob",
-    "gamma",
-    "subgraph",
-    # New classes
-    "GammaSource",
-    "CLOBSource",
-    "SubgraphSource",
+    "Gamma",
+    "CLOB",
+    # "Subgraph",
 ]
