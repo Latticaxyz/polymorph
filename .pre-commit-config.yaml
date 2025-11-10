@@ -57,7 +57,7 @@ repos:
         entry: uv run pytest -m "not integration"
         language: system
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [pre-push]
 
       # Integration tests
       - id: pytest-integration
