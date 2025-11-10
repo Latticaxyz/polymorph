@@ -6,6 +6,9 @@ dist/
 wheels/
 *.egg-info
 
+# pytest
+.pytest_cache
+
 # mypy
 .mypy_cache/
 
