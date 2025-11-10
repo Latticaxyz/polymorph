@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+import click
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -16,7 +17,15 @@ from polymorph.pipeline import FetchStage, ProcessStage
 from polymorph.sims import MonteCarloSimulator, ParameterSearcher
 from polymorph.utils.logging import setup as setup_logging
 
-app = typer.Typer(add_completion=False, no_args_is_help=True)
+click.Context.formatter_class = click.HelpFormatter
+
+
+app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=True,
+    rich_markup_mode=None,
+    pretty_exceptions_enable=False,
+)
 console = Console()
 
 
@@ -107,7 +116,8 @@ def fetch(
     ),
 ) -> None:
     console.log(
-        f"months={months}, out={out}, gamma={include_gamma}, prices={include_prices}, trades={include_trades}"
+        f"months={months}, out={out}, gamma={include_gamma}, "
+        f"prices={include_prices}, trades={include_trades}"
     )
     context = create_context(out)
     stage = FetchStage(
@@ -158,7 +168,9 @@ def mc_run(
     trials: int = typer.Option(10000, "--trials"),
     horizon_days: int = typer.Option(7, "--horizon-days"),
     in_: Path = typer.Option(
-        Path(settings.data_dir) / "processed", "--in", help="Processed data directory"
+        Path(settings.data_dir) / "processed",
+        "--in",
+        help="Processed data directory",
     ),
 ) -> None:
     simulator = MonteCarloSimulator(processed_dir=in_)
@@ -180,7 +192,9 @@ def tune(
     study: str = typer.Option("polymorph", "--study"),
     n_trials: int = typer.Option(20, "--n-trials"),
     in_: Path = typer.Option(
-        Path(settings.data_dir) / "processed", "--in", help="Processed data directory"
+        Path(settings.data_dir) / "processed",
+        "--in",
+        help="Processed data directory",
     ),
 ) -> None:
     searcher = ParameterSearcher(processed_dir=in_)
