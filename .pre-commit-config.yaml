@@ -1,6 +1,17 @@
 default_stages: [pre-commit, pre-push]
 
 repos:
+  # Pre-commit utility hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+
   # Formatters
   - repo: https://github.com/PyCQA/isort
     rev: 7.0.0
@@ -31,27 +42,54 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.4
     hooks:
-      # - id: ruff-format
-      #   name: ruff format
-      #   language: system
-      #   entry: uv run ruff format
-      #   types: [python]
-      #
       - id: ruff-check
         name: ruff check
         language: system
         entry: uv run ruff check
         types: [python]
-  # Pre-commit utility hooks
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+
+  # Type checker
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
     hooks:
-      - id: check-yaml
-      - id: check-toml
-      - id: check-json
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
-      - id: mixed-line-ending
+      - id: mypy
+        language: system
+        entry: uv run mypy
+        args:
+          - --strict
+          - --ignore-missing-imports
+          - --show-error-codes
+          - --no-warn-unused-ignores
+          - --python-version=3.11
+        types: [python]
+
+  # Security
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.6
+    hooks:
+      - id: bandit
+        entry: uv run bandit
+        args:
+          - --recursive
+          - --format=screen
+          - --severity-level=LOW
+          - --confidence-level=LOW
+          - polymorph/
+        types: [python]
+
+  # Dead Code Detect
+  - repo: https://github.com/jendrikseipp/vulture
+    rev: v2.14
+    hooks:
+      - id: vulture
+        language: system
+        entry: uv run vulture
+        args:
+          - polymorph/
+          - --min-confidence=80
+          - --sort-by-size
+          - --ignore-names=__init__,__main__
+        types: [python]
 
   # Tests
   - repo: local
