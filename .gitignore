@@ -6,8 +6,11 @@ dist/
 wheels/
 *.egg-info
 
+# pytest
+.pytest_cache
+
 # mypy
-.mypy.cache/
+.mypy_cache/
 
 # Virtual environments
 .venv
@@ -23,3 +26,9 @@ uv.lock
 
 # Misc
 .DS_Store
+
+# Environment files
+.env
+
+# Claude
+.claude/

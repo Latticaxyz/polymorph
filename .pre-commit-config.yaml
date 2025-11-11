@@ -1,0 +1,73 @@
+default_stages: [pre-commit, pre-push]
+
+repos:
+  # Formatters
+  - repo: https://github.com/psf/black
+    rev: 25.11.0
+    hooks:
+      - id: black
+        language: system
+        entry: uv run black
+        types: [python]
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 7.0.0
+    hooks:
+      - id: isort
+        language: system
+        entry: uv run isort
+        types: [python]
+
+  # Linters
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+        language: system
+        entry: uv run flake8
+        args: ["--max-line-length=88", "--extend-ignore=E203,D"]
+        types: [python]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.4
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        language: system
+        entry: uv run ruff format
+        types: [python]
+
+      - id: ruff-check
+        name: ruff check
+        language: system
+        entry: uv run ruff check
+        types: [python]
+  # Pre-commit utility hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+
+  # Tests
+  - repo: local
+    hooks:
+      # Unit tests
+      - id: pytest-unit
+        name: pytest (unit tests)
+        entry: uv run pytest -m "not integration"
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Integration tests
+      - id: pytest-integration
+        name: pytest (integration tests)
+        entry: uv run pytest --run-integration -m integration
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

@@ -13,7 +13,7 @@ from polymorph.core.storage import ParquetStorage
 
 
 class TestPipelineContext:
-    """Test PipelineContext."""
+    """Test Pipeline Context."""
 
     def test_create_context(self):
         """Test creating a pipeline context."""
@@ -40,7 +40,7 @@ class TestPipelineContext:
         )
 
         assert isinstance(context.data_dir, Path)
-        assert context.data_dir == Path("data")
+        assert context.data_dir == data_path
 
 
 class TestParquetStorage:
@@ -143,7 +143,7 @@ class TestDataSource:
         assert source.context == context
         assert source.settings == settings
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_data_source_fetch(self):
         """Test fetching from a data source."""
         settings = Settings()
@@ -177,7 +177,7 @@ class TestPipelineStage:
         assert stage.context == context
         assert stage.settings == settings
 
-    @pytest.mark.asyncio
+    @pytest.mark.anyio
     async def test_pipeline_stage_execute(self):
         """Test executing a pipeline stage."""
         settings = Settings()
