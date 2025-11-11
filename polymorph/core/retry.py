@@ -2,16 +2,15 @@ import asyncio
 from functools import wraps
 from typing import Any, Callable, TypeVar, cast
 
+import httpx
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
-import httpx
 
 from polymorph.utils.logging import get_logger
-
 
 logger = get_logger(__name__)
 

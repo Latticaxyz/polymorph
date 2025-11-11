@@ -2,7 +2,7 @@ from pathlib import Path
 
 import polars as pl
 
-from polymorph.core.base import PipelineStage, PipelineContext
+from polymorph.core.base import PipelineContext, PipelineStage
 from polymorph.core.storage import ParquetStorage
 from polymorph.models.pipeline import FetchResult, ProcessResult
 from polymorph.utils.logging import get_logger

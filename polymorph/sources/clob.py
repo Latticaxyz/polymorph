@@ -4,7 +4,7 @@ import httpx
 import polars as pl
 
 from polymorph.core.base import DataSource, PipelineContext
-from polymorph.core.retry import with_retry, RateLimitError
+from polymorph.core.retry import RateLimitError, with_retry
 from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)

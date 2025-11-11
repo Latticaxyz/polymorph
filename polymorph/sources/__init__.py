@@ -1,5 +1,5 @@
-from .gamma import Gamma
 from .clob import CLOB
+from .gamma import Gamma
 
 # from .subgraph import Subgraph
 

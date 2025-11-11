@@ -8,7 +8,6 @@ from pydantic import BaseModel
 
 from polymorph.config import Settings
 
-
 T = TypeVar("T")
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
