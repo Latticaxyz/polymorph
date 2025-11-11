@@ -3,7 +3,7 @@ default_stages: [pre-commit, pre-push]
 repos:
   # Formatters
   - repo: https://github.com/psf/black
-    rev: 24.8.0
+    rev: 25.11.0
     hooks:
       - id: black
         language: system
@@ -11,7 +11,7 @@ repos:
         types: [python]
 
   - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
+    rev: 7.0.0
     hooks:
       - id: isort
         language: system
@@ -20,7 +20,7 @@ repos:
 
   # Linters
   - repo: https://github.com/pycqa/flake8
-    rev: 7.1.1
+    rev: 7.3.0
     hooks:
       - id: flake8
         language: system
@@ -29,17 +29,22 @@ repos:
         types: [python]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.14.4
     hooks:
-      - id: ruff
+      - id: ruff-format
+        name: ruff format
         language: system
-        entry: uv run ruff
-        args: [format, check]
+        entry: uv run ruff format
         types: [python]
 
+      - id: ruff-check
+        name: ruff check
+        language: system
+        entry: uv run ruff check
+        types: [python]
   # Pre-commit utility hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: check-yaml
       - id: check-toml
