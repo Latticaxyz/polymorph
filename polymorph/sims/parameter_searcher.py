@@ -128,6 +128,4 @@ class ParameterSearcher:
     ) -> None:
         result = self.optimize(study_name, n_trials, objective_fn)
 
-        print(
-            f"Best value: {result.best_value:.6f} " f"with params: {result.best_params}"
-        )
+        print(f"Best value: {result.best_value:.6f} with params: {result.best_params}")
