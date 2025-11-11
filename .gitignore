@@ -26,3 +26,6 @@ uv.lock
 
 # Misc
 .DS_Store
+
+# Environment files
+.env
