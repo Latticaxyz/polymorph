@@ -72,8 +72,8 @@ repos:
         args:
           - --recursive
           - --format=screen
-          - --severity-level=LOW
-          - --confidence-level=LOW
+          - --severity-level=low
+          - --confidence-level=low
           - polymorph/
         types: [python]
 
