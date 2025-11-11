@@ -2,7 +2,7 @@ from importlib import import_module
 
 __version__ = "0.1.0"
 
-from . import utils, io, sources, sims, pipeline
+from . import io, pipeline, sims, sources, utils
 
 # Eager load
 __all__ = ["__version__", "utils", "io", "sources", "sims", "pipeline"]

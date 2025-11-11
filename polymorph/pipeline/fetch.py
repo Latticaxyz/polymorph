@@ -4,18 +4,18 @@ from pathlib import Path
 
 import polars as pl
 from rich.progress import (
+    BarColumn,
     Progress,
     SpinnerColumn,
     TextColumn,
-    BarColumn,
     TimeElapsedColumn,
 )
 
-from polymorph.core.base import PipelineStage, PipelineContext
+from polymorph.core.base import PipelineContext, PipelineStage
 from polymorph.core.storage import ParquetStorage
 from polymorph.models.pipeline import FetchResult
-from polymorph.sources.gamma import Gamma
 from polymorph.sources.clob import CLOB
+from polymorph.sources.gamma import Gamma
 from polymorph.utils.logging import get_logger
 from polymorph.utils.time import months_ago, utc
 

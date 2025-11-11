@@ -1,6 +1,8 @@
 from __future__ import annotations
-from rich.logging import RichHandler
+
 import logging
+
+from rich.logging import RichHandler
 
 
 def setup(level: int = logging.INFO) -> None:

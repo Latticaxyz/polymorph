@@ -1,17 +1,17 @@
 """Tests for Gamma data source."""
 
-import pytest
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import polars as pl
 import httpx
+import polars as pl
+import pytest
 
 from polymorph.config import Settings
 from polymorph.core.base import PipelineContext
-from polymorph.sources.gamma import Gamma, GAMMA_BASE
+from polymorph.sources.gamma import GAMMA_BASE, Gamma
 
 
 class TestGammaDataSource:
