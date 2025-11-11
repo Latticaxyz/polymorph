@@ -2,20 +2,20 @@ default_stages: [pre-commit, pre-push]
 
 repos:
   # Formatters
-  - repo: https://github.com/psf/black
-    rev: 25.11.0
-    hooks:
-      - id: black
-        language: system
-        entry: uv run black
-        types: [python]
-
   - repo: https://github.com/PyCQA/isort
     rev: 7.0.0
     hooks:
       - id: isort
         language: system
         entry: uv run isort
+        types: [python]
+
+  - repo: https://github.com/psf/black
+    rev: 25.11.0
+    hooks:
+      - id: black
+        language: system
+        entry: uv run black
         types: [python]
 
   # Linters
