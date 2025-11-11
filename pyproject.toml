@@ -26,6 +26,7 @@ polymorph = "polymorph.cli:main"
 
 [dependency-groups]
 dev = [
+  "bandit>=1.8.6",
   "black>=25.9.0",
   "flake8>=7.3.0",
   "flake8-bugbear>=25.10.21",
@@ -36,6 +37,7 @@ dev = [
   "pytest>=8.4.2",
   "ruff>=0.14.3",
   "types-requests>=2.32.4.20250913",
+  "vulture>=2.14",
 ]
 distributed = ["ray[default]>=2.9.0"]
 
