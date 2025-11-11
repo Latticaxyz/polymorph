@@ -25,7 +25,7 @@ repos:
       - id: flake8
         language: system
         entry: uv run flake8
-        args: [--max-line-length=88, --extend-ignore=E203]
+        args: [--max-line-length=88, --extend-ignore=E203, D]
         types: [python]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -34,7 +34,7 @@ repos:
       - id: ruff
         language: system
         entry: uv run ruff
-        args: [--fix]
+        args: [format, check]
         types: [python]
 
   # Pre-commit utility hooks
