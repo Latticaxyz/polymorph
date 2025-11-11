@@ -31,12 +31,12 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.4
     hooks:
-      - id: ruff-format
-        name: ruff format
-        language: system
-        entry: uv run ruff format
-        types: [python]
-
+      # - id: ruff-format
+      #   name: ruff format
+      #   language: system
+      #   entry: uv run ruff format
+      #   types: [python]
+      #
       - id: ruff-check
         name: ruff check
         language: system
