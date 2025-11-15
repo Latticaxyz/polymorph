@@ -6,15 +6,15 @@ import polars as pl
 
 class StorageBackend(ABC):
     @abstractmethod
-    def write(self, data: pl.DataFrame, path: str | Path, **kwargs) -> None:
+    def write(self, data: pl.DataFrame, path: str | Path, **kwargs: object) -> None:
         pass
 
     @abstractmethod
-    def read(self, path: str | Path, **kwargs) -> pl.DataFrame:
+    def read(self, path: str | Path, **kwargs: object) -> pl.DataFrame:
         pass
 
     @abstractmethod
-    def scan(self, path: str | Path, **kwargs) -> pl.LazyFrame:
+    def scan(self, path: str | Path, **kwargs: object) -> pl.LazyFrame:
         pass
 
     @abstractmethod
@@ -33,18 +33,18 @@ class ParquetStorage(StorageBackend):
             return p
         return self.base_dir / p
 
-    def write(self, data: pl.DataFrame, path: str | Path, **kwargs) -> None:
+    def write(self, data: pl.DataFrame, path: str | Path, **kwargs: object) -> None:
         resolved_path = self._resolve_path(path)
         resolved_path.parent.mkdir(parents=True, exist_ok=True)
-        data.write_parquet(resolved_path, **kwargs)
+        data.write_parquet(resolved_path, **kwargs)  # type: ignore[arg-type]
 
-    def read(self, path: str | Path, **kwargs) -> pl.DataFrame:
+    def read(self, path: str | Path, **kwargs: object) -> pl.DataFrame:
         resolved_path = self._resolve_path(path)
-        return pl.read_parquet(resolved_path, **kwargs)
+        return pl.read_parquet(resolved_path, **kwargs)  # type: ignore[arg-type]
 
-    def scan(self, path: str | Path, **kwargs) -> pl.LazyFrame:
+    def scan(self, path: str | Path, **kwargs: object) -> pl.LazyFrame:
         resolved_path = self._resolve_path(path)
-        return pl.scan_parquet(resolved_path, **kwargs)
+        return pl.scan_parquet(resolved_path, **kwargs)  # type: ignore[arg-type]
 
     def exists(self, path: str | Path) -> bool:
         resolved_path = self._resolve_path(path)

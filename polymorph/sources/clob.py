@@ -1,5 +1,3 @@
-from typing import Any
-
 import httpx
 import polars as pl
 
@@ -8,6 +6,11 @@ from polymorph.core.retry import RateLimitError, with_retry
 from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# JSON type aliases for strict typing
+JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonDict = dict[str, JsonValue]
+JsonList = list[JsonValue]
 
 CLOB_BASE = "https://clob.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
@@ -42,7 +45,9 @@ class CLOB(DataSource[pl.DataFrame]):
         return self._client
 
     @with_retry(max_attempts=5, min_wait=1.0, max_wait=10.0)
-    async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict | list:
+    async def _get(
+        self, url: str, params: dict[str, int | str | bool] | None = None
+    ) -> JsonDict | JsonList:
         client = await self._get_client()
         r = await client.get(url, params=params, timeout=client.timeout)
 
@@ -50,7 +55,8 @@ class CLOB(DataSource[pl.DataFrame]):
             raise RateLimitError("Rate limit exceeded")
 
         r.raise_for_status()
-        return r.json()
+        result: JsonDict | JsonList = r.json()
+        return result
 
     async def fetch_prices_history(
         self,
@@ -60,7 +66,7 @@ class CLOB(DataSource[pl.DataFrame]):
         fidelity: int | None = None,
     ) -> pl.DataFrame:
         url = f"{self.clob_base_url}/prices-history"
-        params = {
+        params: dict[str, int | str] = {
             "market": token_id,
             "startTs": start_ts,
             "endTs": end_ts,
@@ -82,7 +88,7 @@ class CLOB(DataSource[pl.DataFrame]):
         limit: int = 1000,
         offset: int = 0,
         market_ids: list[str] | None = None,
-    ) -> list[dict]:
+    ) -> JsonList:
         params: dict[str, str | int] = {"limit": limit, "offset": offset}
         if market_ids:
             params["market"] = ",".join(market_ids)
@@ -90,7 +96,11 @@ class CLOB(DataSource[pl.DataFrame]):
         url = f"{self.data_api_url}/trades"
         data = await self._get(url, params=params)
 
-        return data if isinstance(data, list) else data.get("data", [])
+        if isinstance(data, list):
+            return data
+        else:
+            data_field = data.get("data")
+            return data_field if isinstance(data_field, list) else []
 
     async def fetch_trades(
         self,
@@ -101,7 +111,7 @@ class CLOB(DataSource[pl.DataFrame]):
             f"Fetching trades (markets={len(market_ids) if market_ids else 'all'})"
         )
 
-        rows: list[dict] = []
+        rows: JsonList = []
         offset = 0
         limit = 1000
 
@@ -146,16 +156,21 @@ class CLOB(DataSource[pl.DataFrame]):
 
         return df
 
-    async def fetch(self, **kwargs) -> pl.DataFrame:
+    async def fetch(self) -> pl.DataFrame:
         return pl.DataFrame()
 
-    async def close(self):
+    async def close(self) -> None:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "CLOB":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: object,
+    ) -> None:
         await self.close()

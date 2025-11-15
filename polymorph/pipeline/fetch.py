@@ -54,7 +54,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
     def _run_timestamp_str(self) -> str:
         return self.context.run_timestamp.strftime("%Y%m%dT%H%M%SZ")
 
-    async def execute(self, input_data: None = None) -> FetchResult:
+    async def execute(self, _input_data: None = None) -> FetchResult:
         logger.info(
             f"Starting fetch stage: {self.n_months} months "
             f"(gamma={self.include_gamma}, prices={self.include_prices}, "

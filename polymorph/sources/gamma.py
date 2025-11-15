@@ -1,5 +1,4 @@
 import json
-from typing import Any
 
 import httpx
 import polars as pl
@@ -9,6 +8,11 @@ from polymorph.core.retry import with_retry
 from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# JSON type aliases for strict typing
+JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonDict = dict[str, JsonValue]
+JsonList = list[JsonValue]
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
@@ -40,14 +44,17 @@ class Gamma(DataSource[pl.DataFrame]):
         return self._client
 
     @with_retry(max_attempts=5, min_wait=1.0, max_wait=10.0)
-    async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict | list:
+    async def _get(
+        self, url: str, params: dict[str, int | bool] | None = None
+    ) -> JsonDict | JsonList:
         client = await self._get_client()
         r = await client.get(url, params=params, timeout=client.timeout)
         r.raise_for_status()
-        return r.json()
+        result: JsonDict | JsonList = r.json()
+        return result
 
     @staticmethod
-    def _normalize_ids(v: Any) -> list[str]:
+    def _normalize_ids(v: object) -> list[str]:
         if v is None:
             return []
         if isinstance(v, list):
@@ -66,15 +73,15 @@ class Gamma(DataSource[pl.DataFrame]):
             return [s]
         return [str(v)]
 
-    async def fetch(self, active_only: bool = True, **kwargs) -> pl.DataFrame:
+    async def fetch(self, active_only: bool = True) -> pl.DataFrame:
         logger.info(f"Fetching markets from Gamma API (active_only={active_only})")
 
         url = f"{self.base_url}/markets"
         offset = 0
-        markets_data: list[dict] = []
+        markets_data: list[JsonValue] = []
 
         for page in range(self.max_pages):
-            params: dict[str, Any] = {
+            params: dict[str, int | bool] = {
                 "limit": self.page_size,
                 "offset": offset,
             }
@@ -82,11 +89,16 @@ class Gamma(DataSource[pl.DataFrame]):
                 params["closed"] = False
 
             payload = await self._get(url, params=params)
-            items = (
-                payload
-                if isinstance(payload, list)
-                else payload.get("data") or payload.get("markets") or []
-            )
+            if isinstance(payload, list):
+                items = payload
+            else:
+                data_value = payload.get("data")
+                markets_value = payload.get("markets")
+                items = (
+                    data_value
+                    if isinstance(data_value, list)
+                    else markets_value if isinstance(markets_value, list) else []
+                )
 
             if not items:
                 logger.debug(f"No more items at page {page}")
@@ -122,13 +134,18 @@ class Gamma(DataSource[pl.DataFrame]):
 
         return df
 
-    async def close(self):
+    async def close(self) -> None:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "Gamma":
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: object,
+    ) -> None:
         await self.close()

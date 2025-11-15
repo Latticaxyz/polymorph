@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel
 
@@ -18,9 +18,9 @@ class PipelineContext:
     settings: Settings
     run_timestamp: datetime
     data_dir: Path
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if isinstance(self.data_dir, str):
             self.data_dir = Path(self.data_dir)
 
@@ -36,7 +36,7 @@ class DataSource(ABC, Generic[T]):
         pass
 
     @abstractmethod
-    async def fetch(self, **kwargs) -> T:
+    async def fetch(self) -> T:
         pass
 
     async def validate(self, data: T) -> bool:
@@ -57,10 +57,10 @@ class PipelineStage(ABC, Generic[InputT, OutputT]):
         pass
 
     @abstractmethod
-    async def execute(self, input_data: InputT | None = None) -> OutputT:
+    async def execute(self, _input_data: InputT | None = None) -> OutputT:
         pass
 
-    async def validate_input(self, input_data: InputT | None) -> bool:
+    async def validate_input(self, _input_data: InputT | None) -> bool:
         return True
 
     async def validate_output(self, output_data: OutputT) -> bool:

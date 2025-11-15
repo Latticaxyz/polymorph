@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Any, Callable, TypeVar, cast
+from typing import ParamSpec, TypeVar
 
 import httpx
 from tenacity import (
@@ -14,7 +15,8 @@ from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-F = TypeVar("F", bound=Callable[..., Any])
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 def with_retry(
@@ -25,10 +27,10 @@ def with_retry(
         httpx.HTTPError,
         asyncio.TimeoutError,
     ),
-):
-    def decorator(func: F) -> F:
+) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
+    def decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(max_attempts),
                 wait=wait_exponential(min=min_wait, max=max_wait),
@@ -44,8 +46,12 @@ def with_retry(
                             f"failed for {func.__name__}: {e}"
                         )
                         raise
+            # This is logically unreachable, but makes the type checker happy
+            raise RuntimeError(
+                "with_retry: AsyncRetrying loop exited without returning or raising"
+            )
 
-        return cast(F, wrapper)
+        return wrapper
 
     return decorator
 
