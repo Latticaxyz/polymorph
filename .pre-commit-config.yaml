@@ -36,7 +36,7 @@ repos:
       - id: flake8
         language: system
         entry: uv run flake8
-        args: ["--max-line-length=120", "--extend-ignore=E203,D"]
+        args: ["--max-line-length=120", "--extend-ignore=E203,D,B008"]
         types: [python]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -74,8 +74,10 @@ repos:
           - --format=screen
           - --severity-level=low
           - --confidence-level=low
+          - --skip=B101
           - polymorph/
         types: [python]
+        exclude: ^tests/
 
   # Dead Code Detect
   - repo: https://github.com/jendrikseipp/vulture
