@@ -1,6 +1,4 @@
-from typing import Any
-
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class Market(BaseModel):
@@ -21,7 +19,7 @@ class Market(BaseModel):
 
     @field_validator("clob_token_ids", mode="before")
     @classmethod
-    def normalize_token_ids(cls, v: Any) -> list[str]:
+    def normalize_token_ids(_cls, v: object) -> list[str]:
         if v is None:
             return []
         if isinstance(v, list):
@@ -78,8 +76,8 @@ class Trade(BaseModel):
 
     @field_validator("timestamp", mode="before")
     @classmethod
-    def parse_timestamp(cls, v: Any, info) -> int | None:
-        if v is not None:
+    def parse_timestamp(_cls, v: object, info: ValidationInfo) -> int | None:
+        if v is not None and isinstance(v, int):
             return v
 
         # Try to get from created_at
@@ -90,6 +88,7 @@ class Trade(BaseModel):
 
                 dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
                 return int(dt.timestamp())
-            except Exception:
-                pass
+            except (ValueError, OSError):
+                # Invalid datetime format or out of range - return None
+                return None
         return None

@@ -111,7 +111,7 @@ class DummySource(DataSource[pl.DataFrame]):
     def name(self) -> str:
         return "dummy"
 
-    async def fetch(self, **kwargs) -> pl.DataFrame:
+    async def fetch(self) -> pl.DataFrame:
         return pl.DataFrame({"id": [1, 2, 3]})
 
 

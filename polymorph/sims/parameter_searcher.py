@@ -22,6 +22,7 @@ class ParameterSearcher:
         self.context = context
 
         # Set up storage
+        self.storage: ParquetStorage | None
         if context:
             self.storage = ParquetStorage(context.data_dir)
             self.processed_dir = context.data_dir / "processed"

@@ -162,7 +162,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
 
         return result
 
-    async def execute(self, input_data: FetchResult | None = None) -> ProcessResult:
+    async def execute(self, _input_data: FetchResult | None = None) -> ProcessResult:
         logger.info("Starting process stage")
 
         returns_result = self.build_daily_returns()

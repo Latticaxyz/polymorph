@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import polars as pl
@@ -25,6 +24,7 @@ class MonteCarloSimulator:
         self.clip_max = clip_max
 
         # Set up storage
+        self.storage: ParquetStorage | None
         if context:
             self.storage = ParquetStorage(context.data_dir)
             self.processed_dir = context.data_dir / "processed"
@@ -118,7 +118,7 @@ class MonteCarloSimulator:
         trials: int = 10000,
         horizon_days: int = 30,
         initial_price: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, str | int | float]:
         result = self.simulate(token_id, trials, horizon_days, initial_price)
 
         return {

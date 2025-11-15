@@ -28,6 +28,13 @@ app = typer.Typer(
 )
 console = Console()
 
+# Module-level defaults to avoid B008 flake8 errors
+_DEFAULT_DATA_DIR = Path(settings.data_dir)
+_DEFAULT_HTTP_TIMEOUT = settings.http_timeout
+_DEFAULT_MAX_CONCURRENCY = settings.max_concurrency
+_DEFAULT_RAW_DIR = Path(settings.data_dir) / "raw"
+_DEFAULT_PROCESSED_DIR = Path(settings.data_dir) / "processed"
+
 
 def create_context(data_dir: Path) -> PipelineContext:
     return PipelineContext(
@@ -40,7 +47,7 @@ def create_context(data_dir: Path) -> PipelineContext:
 @app.callback()
 def init(
     data_dir: Path = typer.Option(
-        Path(settings.data_dir),
+        _DEFAULT_DATA_DIR,
         "--data-dir",
         "-d",
         help="Base data directory (overrides POLYMORPH_DATA_DIR / config)",
@@ -53,13 +60,13 @@ def init(
         help="Enable verbose (DEBUG) logging",
     ),
     http_timeout: int = typer.Option(
-        settings.http_timeout,
+        _DEFAULT_HTTP_TIMEOUT,
         "--http-timeout",
         help="HTTP timeout in seconds (overrides POLYMORPH_HTTP_TIMEOUT)",
         envvar="POLYMORPH_HTTP_TIMEOUT",
     ),
     max_concurrency: int = typer.Option(
-        settings.max_concurrency,
+        _DEFAULT_MAX_CONCURRENCY,
         "--max-concurrency",
         help="Max concurrent HTTP requests (overrides POLYMORPH_MAX_CONCURRENCY)",
         envvar="POLYMORPH_MAX_CONCURRENCY",
@@ -94,7 +101,7 @@ def fetch(
         1, "--months", "-m", help="Number of months to backfill"
     ),
     out: Path = typer.Option(
-        Path(settings.data_dir), "--out", help="Root output dir for raw data"
+        _DEFAULT_DATA_DIR, "--out", help="Root output dir for raw data"
     ),
     include_trades: bool = typer.Option(
         True, "--trades/--no-trades", help="Include recent trades via Data-API"
@@ -131,12 +138,12 @@ def fetch(
 @app.command(help="Processing tools and algorithms (ex. Monte Carlo simulations")
 def process(
     in_: Path = typer.Option(
-        Path(settings.data_dir) / "raw",
+        _DEFAULT_RAW_DIR,
         "--in",
         help="Input directory with raw parquet data",
     ),
     out: Path = typer.Option(
-        Path(settings.data_dir) / "processed",
+        _DEFAULT_PROCESSED_DIR,
         "--out",
         help="Output directory for processed data",
     ),
@@ -158,7 +165,7 @@ def mc_run(
     trials: int = typer.Option(10000, "--trials"),
     horizon_days: int = typer.Option(7, "--horizon-days"),
     in_: Path = typer.Option(
-        Path(settings.data_dir) / "processed",
+        _DEFAULT_PROCESSED_DIR,
         "--in",
         help="Processed data directory",
     ),
@@ -178,7 +185,7 @@ def tune(
     study: str = typer.Option("polymorph", "--study"),
     n_trials: int = typer.Option(20, "--n-trials"),
     in_: Path = typer.Option(
-        Path(settings.data_dir) / "processed",
+        _DEFAULT_PROCESSED_DIR,
         "--in",
         help="Processed data directory",
     ),
