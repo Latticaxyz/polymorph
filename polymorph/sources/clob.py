@@ -45,9 +45,7 @@ class CLOB(DataSource[pl.DataFrame]):
         return self._client
 
     @with_retry(max_attempts=5, min_wait=1.0, max_wait=10.0)
-    async def _get(
-        self, url: str, params: dict[str, int | str | bool] | None = None
-    ) -> JsonDict | JsonList:
+    async def _get(self, url: str, params: dict[str, int | str | bool] | None = None) -> JsonDict | JsonList:
         client = await self._get_client()
         r = await client.get(url, params=params, timeout=client.timeout)
 
@@ -107,18 +105,14 @@ class CLOB(DataSource[pl.DataFrame]):
         market_ids: list[str] | None = None,
         since_ts: int | None = None,
     ) -> pl.DataFrame:
-        logger.info(
-            f"Fetching trades (markets={len(market_ids) if market_ids else 'all'})"
-        )
+        logger.info(f"Fetching trades (markets={len(market_ids) if market_ids else 'all'})")
 
         rows: JsonList = []
         offset = 0
         limit = 1000
 
         while True:
-            batch = await self.fetch_trades_paged(
-                limit=limit, offset=offset, market_ids=market_ids
-            )
+            batch = await self.fetch_trades_paged(limit=limit, offset=offset, market_ids=market_ids)
 
             if not batch:
                 logger.debug(f"No more trades at offset {offset}")

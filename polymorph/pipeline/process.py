@@ -22,9 +22,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         self.storage = ParquetStorage(context.data_dir)
 
         self.raw_dir = Path(raw_dir) if raw_dir else context.data_dir / "raw"
-        self.processed_dir = (
-            Path(processed_dir) if processed_dir else context.data_dir / "processed"
-        )
+        self.processed_dir = Path(processed_dir) if processed_dir else context.data_dir / "processed"
 
     @property
     def name(self) -> str:
@@ -69,17 +67,11 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             price_col = "p"
 
         daily_returns = (
-            lf.with_columns(
-                (pl.col(timestamp_col).cast(pl.Int64) // 86_400 * 86_400).alias(
-                    "day_ts"
-                )
-            )
+            lf.with_columns((pl.col(timestamp_col).cast(pl.Int64) // 86_400 * 86_400).alias("day_ts"))
             .group_by(["token_id", "day_ts"])
             .agg(pl.col(price_col).mean().alias("price_day"))
             .sort(["token_id", "day_ts"])
-            .with_columns(
-                pl.col("price_day").pct_change().over("token_id").alias("ret")
-            )
+            .with_columns(pl.col("price_day").pct_change().over("token_id").alias("ret"))
             .collect()
         )
         self.processed_dir.mkdir(parents=True, exist_ok=True)
@@ -89,9 +81,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         result.daily_returns_path = output_path
         result.returns_count = daily_returns.height
 
-        logger.info(
-            f"Daily returns built: {result.returns_count} rows -> {output_path}"
-        )
+        logger.info(f"Daily returns built: {result.returns_count} rows -> {output_path}")
 
         return result
 
@@ -123,18 +113,13 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         required_cols = {"timestamp", "size", "price", "conditionId"}
 
         if not required_cols.issubset(schema.names()):
-            logger.warning(
-                f"Trade data missing required columns. "
-                f"Found: {schema.names()}, Need: {required_cols}"
-            )
+            logger.warning(f"Trade data missing required columns. " f"Found: {schema.names()}, Need: {required_cols}")
             return result
 
         trade_agg = (
             lf.with_columns(
                 [
-                    (pl.col("timestamp").cast(pl.Int64) // 86_400 * 86_400).alias(
-                        "day_ts"
-                    ),
+                    (pl.col("timestamp").cast(pl.Int64) // 86_400 * 86_400).alias("day_ts"),
                     (pl.col("size") * pl.col("price")).alias("notional"),
                 ]
             )
@@ -156,9 +141,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         result.trades_daily_agg_path = output_path
         result.trade_agg_count = trade_agg.height
 
-        logger.info(
-            f"Trade aggregates built: {result.trade_agg_count} rows -> {output_path}"
-        )
+        logger.info(f"Trade aggregates built: {result.trade_agg_count} rows -> {output_path}")
 
         return result
 
@@ -177,8 +160,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         )
 
         logger.info(
-            f"Process stage complete: {result.returns_count} returns, "
-            f"{result.trade_agg_count} trade aggregates"
+            f"Process stage complete: {result.returns_count} returns, " f"{result.trade_agg_count} trade aggregates"
         )
 
         return result

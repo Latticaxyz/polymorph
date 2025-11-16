@@ -44,9 +44,7 @@ class Gamma(DataSource[pl.DataFrame]):
         return self._client
 
     @with_retry(max_attempts=5, min_wait=1.0, max_wait=10.0)
-    async def _get(
-        self, url: str, params: dict[str, int | bool] | None = None
-    ) -> JsonDict | JsonList:
+    async def _get(self, url: str, params: dict[str, int | bool] | None = None) -> JsonDict | JsonList:
         client = await self._get_client()
         r = await client.get(url, params=params, timeout=client.timeout)
         r.raise_for_status()
@@ -105,10 +103,7 @@ class Gamma(DataSource[pl.DataFrame]):
                 break
 
             markets_data.extend(items)
-            logger.debug(
-                f"Fetched page {page + 1}: {len(items)} markets "
-                f"(total: {len(markets_data)})"
-            )
+            logger.debug(f"Fetched page {page + 1}: {len(items)} markets " f"(total: {len(markets_data)})")
 
             if len(items) < self.page_size:
                 break
