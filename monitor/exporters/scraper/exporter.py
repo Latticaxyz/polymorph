@@ -1,10 +1,11 @@
 # Need to make this file executable
 # chmod +x /opt/polymorph_exporter/polymorph_exporter.py
 
-import time
-import pathlib
 import json
-from prometheus_client import Gauge, Counter, start_http_server
+import pathlib
+import time
+
+from prometheus_client import Counter, Gauge, start_http_server
 
 DATA_DIR = pathlib.Path("data/polymarket")
 STATE_FILE = DATA_DIR / "scraper_state.json"
@@ -31,9 +32,7 @@ last_run_status = Gauge(
 
 files_prices = Gauge("polymorph_prices_files_total", "Count of price files in data dir")
 
-files_trades = Gauge(
-    "polymorph_trades_files_total", "Count of trades files in data dir"
-)
+files_trades = Gauge("polymorph_trades_files_total", "Count of trades files in data dir")
 
 bytes_total = Gauge(
     "polymorph_data_bytes_total",
