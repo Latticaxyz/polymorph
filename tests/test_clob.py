@@ -68,16 +68,12 @@ class TestCLOBDataSource:
             {"timestamp": 1609459320, "price": 0.51},
         ]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return mock_prices
 
         with patch.object(clob_source, "_get", side_effect=mock_get):
-            result = await clob_source.fetch_prices_history(
-                token_id="123", start_ts=1609459200, end_ts=1609459320
-            )
+            result = await clob_source.fetch_prices_history(token_id="123", start_ts=1609459200, end_ts=1609459320)
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 3
@@ -92,16 +88,12 @@ class TestCLOBDataSource:
         """Test that custom fidelity parameter is passed correctly."""
         calls: list[dict[str, Any]] = []
 
-        async def mock_get(
-            url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             calls.append({"url": url, "params": params})
             return []
 
         with patch.object(clob_source, "_get", side_effect=mock_get):
-            await clob_source.fetch_prices_history(
-                token_id="123", start_ts=0, end_ts=100, fidelity=30
-            )
+            await clob_source.fetch_prices_history(token_id="123", start_ts=0, end_ts=100, fidelity=30)
 
         assert len(calls) == 1
         assert calls[0]["params"]["fidelity"] == 30
@@ -111,16 +103,12 @@ class TestCLOBDataSource:
         """Test that default fidelity is used when not specified."""
         calls: list[dict[str, Any]] = []
 
-        async def mock_get(
-            url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             calls.append({"url": url, "params": params})
             return []
 
         with patch.object(clob_source, "_get", side_effect=mock_get):
-            await clob_source.fetch_prices_history(
-                token_id="123", start_ts=0, end_ts=100
-            )
+            await clob_source.fetch_prices_history(token_id="123", start_ts=0, end_ts=100)
 
         assert len(calls) == 1
         assert calls[0]["params"]["fidelity"] == 60  # default
@@ -129,16 +117,12 @@ class TestCLOBDataSource:
     async def test_fetch_prices_history_empty(self, clob_source):
         """Test fetching price history when no data returned."""
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return []
 
         with patch.object(clob_source, "_get", side_effect=mock_get):
-            result = await clob_source.fetch_prices_history(
-                token_id="123", start_ts=0, end_ts=100
-            )
+            result = await clob_source.fetch_prices_history(token_id="123", start_ts=0, end_ts=100)
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 0
@@ -151,9 +135,7 @@ class TestCLOBDataSource:
             {"id": "trade2", "price": 0.51, "size": 150},
         ]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return mock_trades
 
@@ -169,16 +151,12 @@ class TestCLOBDataSource:
         """Test that market_ids are properly formatted as comma-separated."""
         calls: list[dict[str, Any]] = []
 
-        async def mock_get(
-            url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             calls.append({"url": url, "params": params})
             return []
 
         with patch.object(clob_source, "_get", side_effect=mock_get):
-            await clob_source.fetch_trades_paged(
-                limit=100, offset=0, market_ids=["123", "456", "789"]
-            )
+            await clob_source.fetch_trades_paged(limit=100, offset=0, market_ids=["123", "456", "789"])
 
         assert len(calls) == 1
         assert calls[0]["params"]["market"] == "123,456,789"
@@ -188,9 +166,7 @@ class TestCLOBDataSource:
         """Test fetching when response has nested data structure."""
         mock_trades = [{"id": "trade1"}, {"id": "trade2"}]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> dict[str, Any]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
             _ = params  # Mark as intentionally unused
             return {"data": mock_trades}
 
@@ -203,14 +179,9 @@ class TestCLOBDataSource:
     @pytest.mark.anyio
     async def test_fetch_trades_single_page(self, clob_source):
         """Test fetching trades with a single page of results."""
-        mock_trades = [
-            {"id": f"trade{i}", "price": 0.50 + i * 0.01, "size": 100}
-            for i in range(50)
-        ]
+        mock_trades = [{"id": f"trade{i}", "price": 0.50 + i * 0.01, "size": 100} for i in range(50)]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return mock_trades
 
@@ -225,16 +196,10 @@ class TestCLOBDataSource:
         """Test fetching trades across multiple pages."""
         # Create mock data for 2.5 pages
         page1 = [{"id": f"trade{i}", "price": 0.50, "size": 100} for i in range(1000)]
-        page2 = [
-            {"id": f"trade{i}", "price": 0.50, "size": 100} for i in range(1000, 2000)
-        ]
-        page3 = [
-            {"id": f"trade{i}", "price": 0.50, "size": 100} for i in range(2000, 2500)
-        ]
+        page2 = [{"id": f"trade{i}", "price": 0.50, "size": 100} for i in range(1000, 2000)]
+        page3 = [{"id": f"trade{i}", "price": 0.50, "size": 100} for i in range(2000, 2500)]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             if params is None:
                 return []
             offset = params.get("offset", 0)
@@ -260,9 +225,7 @@ class TestCLOBDataSource:
         """Test fetching trades with market_ids filter."""
         calls: list[dict[str, Any]] = []
 
-        async def mock_get(
-            url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             calls.append({"url": url, "params": params})
             # Return empty to stop pagination
             return []
@@ -283,9 +246,7 @@ class TestCLOBDataSource:
         mock_page = [{"id": f"trade{i}", "price": 0.50} for i in range(1000)]
         call_count = [0]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             call_count[0] += 1
             return mock_page
@@ -302,9 +263,7 @@ class TestCLOBDataSource:
     async def test_fetch_trades_empty_results(self, clob_source):
         """Test fetching when no trades are returned."""
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return []
 
@@ -330,9 +289,7 @@ class TestCLOBDataSource:
             },
         ]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return mock_trades
 
@@ -367,9 +324,7 @@ class TestCLOBDataSource:
             },
         ]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return mock_trades
 
@@ -413,9 +368,7 @@ class TestCLOBDataSource:
     async def test_http_error_handling(self, clob_source):
         """Test handling of HTTP errors with realistic httpx objects."""
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             # Create realistic httpx request and response objects
             request = httpx.Request("GET", "https://clob.polymarket.com/prices-history")
@@ -424,15 +377,11 @@ class TestCLOBDataSource:
                 request=request,
                 content=b'{"error": "Not Found"}',
             )
-            raise httpx.HTTPStatusError(
-                "404 Not Found", request=request, response=response
-            )
+            raise httpx.HTTPStatusError("404 Not Found", request=request, response=response)
 
         with patch.object(clob_source, "_get", side_effect=mock_get):
             with pytest.raises(httpx.HTTPStatusError):
-                await clob_source.fetch_prices_history(
-                    token_id="123", start_ts=0, end_ts=100
-                )
+                await clob_source.fetch_prices_history(token_id="123", start_ts=0, end_ts=100)
 
     @pytest.mark.anyio
     async def test_retry_on_rate_limit(self, clob_source):
@@ -447,16 +396,10 @@ class TestCLOBDataSource:
 
             # Fail first 2 attempts with rate limit, succeed on 3rd
             if call_count[0] < 3:
-                request = httpx.Request(
-                    "GET", "https://clob.polymarket.com/prices-history"
-                )
-                response = httpx.Response(
-                    429, request=request, headers={"retry-after": "1"}
-                )
+                request = httpx.Request("GET", "https://clob.polymarket.com/prices-history")
+                response = httpx.Response(429, request=request, headers={"retry-after": "1"})
                 response._content = b'{"error": "Rate limited"}'
-                raise httpx.HTTPStatusError(
-                    "429 Too Many Requests", request=request, response=response
-                )
+                raise httpx.HTTPStatusError("429 Too Many Requests", request=request, response=response)
 
             # Succeed on 3rd attempt - create proper mock response
             mock_response = MagicMock()
@@ -469,12 +412,8 @@ class TestCLOBDataSource:
         mock_client.get.side_effect = mock_client_get
         mock_client.timeout = 30
 
-        with patch.object(
-            clob_source, "_get_client", new=AsyncMock(return_value=mock_client)
-        ):
-            result = await clob_source.fetch_prices_history(
-                token_id="123", start_ts=0, end_ts=100
-            )
+        with patch.object(clob_source, "_get_client", new=AsyncMock(return_value=mock_client)):
+            result = await clob_source.fetch_prices_history(token_id="123", start_ts=0, end_ts=100)
 
         # Should have retried and eventually succeeded
         assert isinstance(result, pl.DataFrame)
@@ -505,9 +444,7 @@ class TestCLOBDataSource:
             assert isinstance(result, pl.DataFrame)
             assert result.height >= 0
 
-            print(
-                f"\n✓ Successfully fetched {result.height} price points from CLOB API"
-            )
+            print(f"\n✓ Successfully fetched {result.height} price points from CLOB API")
 
         except (httpx.HTTPError, httpx.TimeoutException) as e:
             pytest.skip(f"API unavailable or unreachable: {e}")
@@ -541,16 +478,12 @@ class TestCLOBWithFetchPipeline:
         clob = CLOB(context)
 
         # Mock the _get method directly
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return mock_prices
 
         with patch.object(clob, "_get", side_effect=mock_get):
-            result = await clob.fetch_prices_history(
-                token_id="123", start_ts=1609459200, end_ts=1609459320
-            )
+            result = await clob.fetch_prices_history(token_id="123", start_ts=1609459200, end_ts=1609459320)
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 2

@@ -97,21 +97,11 @@ def version() -> None:
 
 @app.command(help="Fetch data and store to Parquet files")
 def fetch(
-    months: int = typer.Option(
-        1, "--months", "-m", help="Number of months to backfill"
-    ),
-    out: Path = typer.Option(
-        _DEFAULT_DATA_DIR, "--out", help="Root output dir for raw data"
-    ),
-    include_trades: bool = typer.Option(
-        True, "--trades/--no-trades", help="Include recent trades via Data-API"
-    ),
-    include_prices: bool = typer.Option(
-        True, "--prices/--no-prices", help="Include prices-history for each token"
-    ),
-    include_gamma: bool = typer.Option(
-        True, "--gamma/--no-gamma", help="Fetch market metadata from Gamma"
-    ),
+    months: int = typer.Option(1, "--months", "-m", help="Number of months to backfill"),
+    out: Path = typer.Option(_DEFAULT_DATA_DIR, "--out", help="Root output dir for raw data"),
+    include_trades: bool = typer.Option(True, "--trades/--no-trades", help="Include recent trades via Data-API"),
+    include_prices: bool = typer.Option(True, "--prices/--no-prices", help="Include prices-history for each token"),
+    include_gamma: bool = typer.Option(True, "--gamma/--no-gamma", help="Fetch market metadata from Gamma"),
     max_concurrency: int | None = typer.Option(
         None,
         "--local-max-concurrency",
@@ -119,8 +109,7 @@ def fetch(
     ),
 ) -> None:
     console.log(
-        f"months={months}, out={out}, gamma={include_gamma}, "
-        f"prices={include_prices}, trades={include_trades}"
+        f"months={months}, out={out}, gamma={include_gamma}, " f"prices={include_prices}, trades={include_trades}"
     )
     context = create_context(out)
     stage = FetchStage(

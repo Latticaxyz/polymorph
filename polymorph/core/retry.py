@@ -47,9 +47,7 @@ def with_retry(
                         )
                         raise
             # This is logically unreachable, but makes the type checker happy
-            raise RuntimeError(
-                "with_retry: AsyncRetrying loop exited without returning or raising"
-            )
+            raise RuntimeError("with_retry: AsyncRetrying loop exited without returning or raising")
 
         return wrapper
 
