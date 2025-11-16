@@ -1,3 +1,4 @@
+exclude: "^monitor/"
 default_stages: [pre-commit, pre-push]
 
 repos:
