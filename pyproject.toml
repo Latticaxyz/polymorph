@@ -1,3 +1,5 @@
+#:tombi schema.strict = false
+
 [project]
 name = "polymorph"
 version = "0.1.0"
@@ -45,12 +47,36 @@ distributed = ["ray[default]>=2.9.0"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.black]
+line-length = 120
+exclude = '''
+/(
+    \.venv
+  | \.git
+  | __pycache__
+  | \.pytest_cache
+  | \.mypy_cache
+  | build
+  | dist
+  | \.eggs
+  | \.egg-info
+)/
+'''
+
 [tool.isort]
 profile = "black"
+line_length = 120
+skip_glob = ["**/.venv/**", "**/build/**", "**/dist/**"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
+exclude = [
+  '\.venv',
+  "build",
+  "dist",
+  '\.eggs',
+]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -61,3 +87,19 @@ disallow_untyped_calls = false
 markers = [
   "integration: marks tests as integration tests that make real API calls (deselect with '-m \"not integration\"')",
 ]
+
+[tool.ruff]
+line-length = 120
+exclude = [
+  ".venv",
+  ".git",
+  "__pycache__",
+  "build",
+  "dist",
+  ".eggs",
+  "*.egg-info"
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = []
