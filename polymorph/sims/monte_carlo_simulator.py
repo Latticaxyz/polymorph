@@ -30,23 +30,16 @@ class MonteCarloSimulator:
             self.processed_dir = context.data_dir / "processed"
         else:
             self.storage = None
-            self.processed_dir = (
-                Path(processed_dir) if processed_dir else Path("data/processed")
-            )
+            self.processed_dir = Path(processed_dir) if processed_dir else Path("data/processed")
 
     def load_returns(self, token_id: str) -> np.ndarray:
         returns_path = self.processed_dir / "daily_returns.parquet"
 
         if not returns_path.exists():
-            raise FileNotFoundError(
-                f"daily_returns.parquet not found at {returns_path}. "
-                "Run process stage first."
-            )
+            raise FileNotFoundError(f"daily_returns.parquet not found at {returns_path}. " "Run process stage first.")
 
         df = pl.read_parquet(returns_path)
-        returns = (
-            df.filter(pl.col("token_id") == token_id)["ret"].fill_null(0.0).to_numpy()
-        )
+        returns = df.filter(pl.col("token_id") == token_id)["ret"].fill_null(0.0).to_numpy()
 
         if returns.size == 0:
             raise ValueError(f"No returns found for token_id={token_id}")
@@ -55,8 +48,7 @@ class MonteCarloSimulator:
         returns = np.clip(returns, self.clip_min, self.clip_max)
 
         logger.info(
-            f"Loaded {len(returns)} returns for {token_id} "
-            f"(mean={returns.mean():.4f}, std={returns.std():.4f})"
+            f"Loaded {len(returns)} returns for {token_id} " f"(mean={returns.mean():.4f}, std={returns.std():.4f})"
         )
 
         return returns
@@ -68,10 +60,7 @@ class MonteCarloSimulator:
         horizon_days: int,
         initial_price: float | None = None,
     ) -> SimulationResult:
-        logger.info(
-            f"Running Monte Carlo: token={token_id}, trials={trials}, "
-            f"horizon={horizon_days} days"
-        )
+        logger.info(f"Running Monte Carlo: token={token_id}, trials={trials}, " f"horizon={horizon_days} days")
 
         # Load historical returns
         returns = self.load_returns(token_id)

@@ -98,9 +98,7 @@ class TestGammaDataSource:
             },
         ]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return mock_markets
 
@@ -120,14 +118,10 @@ class TestGammaDataSource:
         """Test fetching markets across multiple pages."""
         # Create mock data for 2 pages
         page1 = [{"id": f"market{i}", "clobTokenIds": [f"{i}"]} for i in range(250)]
-        page2 = [
-            {"id": f"market{i}", "clobTokenIds": [f"{i}"]} for i in range(250, 300)
-        ]
+        page2 = [{"id": f"market{i}", "clobTokenIds": [f"{i}"]} for i in range(250, 300)]
 
         # Mock responses for different pages
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             if params is not None and params.get("offset") == 0:
                 return page1
             elif params is not None and params.get("offset") == 250:
@@ -148,9 +142,7 @@ class TestGammaDataSource:
     async def test_fetch_empty_results(self, gamma_source):
         """Test fetching when no markets are returned."""
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return []
 
@@ -166,9 +158,7 @@ class TestGammaDataSource:
         """Test that active_only parameter is properly passed."""
         calls: list[dict[str, Any]] = []
 
-        async def mock_get(
-            url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             calls.append({"url": url, "params": params})
             return []
 
@@ -198,9 +188,7 @@ class TestGammaDataSource:
             {"id": "market2", "question": "Will it snow?"},
         ]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return mock_markets
 
@@ -222,9 +210,7 @@ class TestGammaDataSource:
             {"id": "market2", "clobTokenIds": ["456"]},
         ]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> dict[str, Any]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
             _ = params  # Mark as intentionally unused
             # Return data nested in "data" key
             return {"data": mock_markets}
@@ -242,9 +228,7 @@ class TestGammaDataSource:
             {"id": "market1", "clobTokenIds": ["123"]},
         ]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> dict[str, Any]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
             _ = params  # Mark as intentionally unused
             # Return data nested in "markets" key
             return {"markets": mock_markets}
@@ -264,9 +248,7 @@ class TestGammaDataSource:
         mock_page = [{"id": f"market{i}", "clobTokenIds": [f"{i}"]} for i in range(10)]
         call_count = [0]
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             call_count[0] += 1
             return mock_page
@@ -310,9 +292,7 @@ class TestGammaDataSource:
     async def test_http_error_handling(self, gamma_source):
         """Test handling of HTTP errors with realistic httpx objects."""
 
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             # Create realistic httpx request and response objects
             request = httpx.Request("GET", "https://gamma-api.polymarket.com/markets")
@@ -321,9 +301,7 @@ class TestGammaDataSource:
                 request=request,
                 content=b'{"error": "Not Found"}',
             )
-            raise httpx.HTTPStatusError(
-                "404 Not Found", request=request, response=response
-            )
+            raise httpx.HTTPStatusError("404 Not Found", request=request, response=response)
 
         with patch.object(gamma_source, "_get", side_effect=mock_get):
             with pytest.raises(httpx.HTTPStatusError):
@@ -342,16 +320,10 @@ class TestGammaDataSource:
 
             # Fail first 2 attempts with rate limit, succeed on 3rd
             if call_count[0] < 3:
-                request = httpx.Request(
-                    "GET", "https://gamma-api.polymarket.com/markets"
-                )
-                response = httpx.Response(
-                    429, request=request, headers={"retry-after": "1"}
-                )
+                request = httpx.Request("GET", "https://gamma-api.polymarket.com/markets")
+                response = httpx.Response(429, request=request, headers={"retry-after": "1"})
                 response._content = b'{"error": "Rate limited"}'
-                raise httpx.HTTPStatusError(
-                    "429 Too Many Requests", request=request, response=response
-                )
+                raise httpx.HTTPStatusError("429 Too Many Requests", request=request, response=response)
 
             # Succeed on 3rd attempt - create proper mock response
             mock_response = MagicMock()
@@ -364,9 +336,7 @@ class TestGammaDataSource:
         mock_client.get.side_effect = mock_client_get
         mock_client.timeout = 30
 
-        with patch.object(
-            gamma_source, "_get_client", new=AsyncMock(return_value=mock_client)
-        ):
+        with patch.object(gamma_source, "_get_client", new=AsyncMock(return_value=mock_client)):
             result = await gamma_source.fetch()
 
         # Should have retried and eventually succeeded
@@ -435,9 +405,7 @@ class TestGammaWithFetchPipeline:
         gamma = Gamma(context)
 
         # Mock the _get method directly
-        async def mock_get(
-            _url: str, params: dict[str, Any] | None = None
-        ) -> list[dict[str, Any]]:
+        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
             _ = params  # Mark as intentionally unused
             return mock_markets
 

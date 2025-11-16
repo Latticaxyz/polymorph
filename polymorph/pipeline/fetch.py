@@ -95,20 +95,12 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         result.market_count = market_df.height
 
                         if "token_ids" in market_df.columns:
-                            tokens_df = (
-                                market_df.select(pl.col("token_ids"))
-                                .explode("token_ids")
-                                .drop_nulls()
-                                .unique()
-                            )
-                            token_ids = [
-                                str(x) for x in tokens_df["token_ids"].to_list() if x
-                            ]
+                            tokens_df = market_df.select(pl.col("token_ids")).explode("token_ids").drop_nulls().unique()
+                            token_ids = [str(x) for x in tokens_df["token_ids"].to_list() if x]
                             result.token_count = len(token_ids)
 
                         progress.log(
-                            f"[green]✓[/green] Gamma: {result.market_count} markets, "
-                            f"{result.token_count} tokens"
+                            f"[green]✓[/green] Gamma: {result.market_count} markets, " f"{result.token_count} tokens"
                         )
                     else:
                         progress.log("[yellow]•[/yellow] Gamma returned 0 rows")
@@ -121,9 +113,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
                     progress.update(task, visible=False)
 
             if self.include_prices and token_ids:
-                task = progress.add_task(
-                    f"Prices history ({self.n_months}m)", total=len(token_ids)
-                )
+                task = progress.add_task(f"Prices history ({self.n_months}m)", total=len(token_ids))
 
                 sem = asyncio.Semaphore(self.max_concurrency)
                 prices_out: list[pl.DataFrame] = []
@@ -139,16 +129,12 @@ class FetchStage(PipelineStage[None, FetchResult]):
 
                         if df.height > 0:
                             prices_out.append(df)
-                            progress.log(
-                                f"[green]✓[/green] {token_id}: {df.height} prices"
-                            )
+                            progress.log(f"[green]✓[/green] {token_id}: {df.height} prices")
                         else:
                             progress.log(f"[yellow]•[/yellow] {token_id}: empty")
 
                     except Exception as e:
-                        logger.error(
-                            f"Price fetch failed for {token_id}: {e}", exc_info=True
-                        )
+                        logger.error(f"Price fetch failed for {token_id}: {e}", exc_info=True)
                         progress.log(f"[red]✗[/red] {token_id}: {e!r}")
 
                     finally:
@@ -163,33 +149,25 @@ class FetchStage(PipelineStage[None, FetchResult]):
                     self.storage.write(combined, prices_path)
                     result.prices_path = self.storage._resolve_path(prices_path)
                     result.price_point_count = combined.height
-                    progress.log(
-                        f"[green]✓[/green] Prices: {result.price_point_count} rows"
-                    )
+                    progress.log(f"[green]✓[/green] Prices: {result.price_point_count} rows")
 
                 progress.update(task, visible=False)
 
             elif self.include_prices and not token_ids:
-                progress.log(
-                    "[yellow]•[/yellow] No token IDs available; skipping prices"
-                )
+                progress.log("[yellow]•[/yellow] No token IDs available; skipping prices")
 
             if self.include_trades:
                 progress.log("[cyan]Starting trades backfill[/cyan]")
                 try:
                     async with self.clob_source:
-                        trades_df = await self.clob_source.fetch_trades(
-                            market_ids=None, since_ts=start_ts
-                        )
+                        trades_df = await self.clob_source.fetch_trades(market_ids=None, since_ts=start_ts)
 
                     if trades_df.height > 0:
                         trades_path = Path("raw/clob") / f"{stamp}_trades.parquet"
                         self.storage.write(trades_df, trades_path)
                         result.trades_path = self.storage._resolve_path(trades_path)
                         result.trade_count = trades_df.height
-                        progress.log(
-                            f"[green]✓[/green] Trades: {result.trade_count} rows"
-                        )
+                        progress.log(f"[green]✓[/green] Trades: {result.trade_count} rows")
                     else:
                         progress.log("[yellow]•[/yellow] Trades returned 0 rows")
 

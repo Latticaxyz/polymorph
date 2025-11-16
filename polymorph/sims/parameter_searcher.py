@@ -28,18 +28,13 @@ class ParameterSearcher:
             self.processed_dir = context.data_dir / "processed"
         else:
             self.storage = None
-            self.processed_dir = (
-                Path(processed_dir) if processed_dir else Path("data/processed")
-            )
+            self.processed_dir = Path(processed_dir) if processed_dir else Path("data/processed")
 
     def load_returns(self) -> pl.DataFrame:
         returns_path = self.processed_dir / "daily_returns.parquet"
 
         if not returns_path.exists():
-            raise FileNotFoundError(
-                f"daily_returns.parquet not found at {returns_path}. "
-                "Run process stage first."
-            )
+            raise FileNotFoundError(f"daily_returns.parquet not found at {returns_path}. " "Run process stage first.")
 
         df = pl.read_parquet(returns_path)
         logger.info(f"Loaded {len(df)} return observations")
@@ -53,9 +48,7 @@ class ParameterSearcher:
 
         # Apply strategy
         mask = df["ret"].abs() < ret_threshold
-        returns = (
-            1 + (df["ret"].fill_null(0.0) * leverage * mask.cast(pl.Float64))
-        ).to_numpy()
+        returns = (1 + (df["ret"].fill_null(0.0) * leverage * mask.cast(pl.Float64))).to_numpy()
 
         # Calculate compound PnL
         pnl = float(np.prod(returns))
@@ -70,10 +63,7 @@ class ParameterSearcher:
         direction: str = "maximize",
         sampler: optuna.samplers.BaseSampler | None = None,
     ) -> OptimizationResult:
-        logger.info(
-            f"Starting optimization: study={study_name}, trials={n_trials}, "
-            f"direction={direction}"
-        )
+        logger.info(f"Starting optimization: study={study_name}, trials={n_trials}, " f"direction={direction}")
 
         # Load data
         df = self.load_returns()
@@ -114,10 +104,7 @@ class ParameterSearcher:
             },
         )
 
-        logger.info(
-            f"Optimization complete: best_value={result.best_value:.6f}, "
-            f"best_params={result.best_params}"
-        )
+        logger.info(f"Optimization complete: best_value={result.best_value:.6f}, " f"best_params={result.best_params}")
 
         return result
 
