@@ -14,6 +14,7 @@ dependencies = [
   "numpy>=2.3.4",
   "optuna>=4.5.0",
   "polars>=1.35.1",
+  "prometheus-client>=0.23.1",
   "pyarrow>=22.0.0",
   "pydantic>=2.12.3",
   "pydantic-settings>=2.11.0",
