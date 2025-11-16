@@ -16,7 +16,7 @@ runs_total = Counter(
 )
 
 last_run_start = Gauge(
-    "poylmorph_scraper_last_run_start_timestamp",
+    "polymorph_scraper_last_run_start_timestamp",
     "UNIX timestamp of last scraper run start",
 )
 
@@ -27,7 +27,7 @@ last_run_end = Gauge(
 
 last_run_status = Gauge(
     "polymorph_scraper_last_run_status",
-    "Status of klast run (0=unknown, 1=success, -1=failure)",
+    "Status of last run (0=unknown, 1=success, -1=failure)",
 )
 
 files_prices = Gauge("polymorph_prices_files_total", "Count of price files in data dir")
@@ -40,13 +40,13 @@ bytes_total = Gauge(
 )
 
 last_prices_timestamp = Gauge(
-    "poylmorph_last_prices_timestamp",
+    "polymorph_last_prices_timestamp",
     "Latest timestamp in prices (from state file, not from reading Parquet)",
 )
 
 last_trades_timestamp = Gauge(
     "polymorph_last_trades_timestamp",
-    "Latest timestamp in trades (froms state file, not from reading Parquet)",
+    "Latest timestamp in trades (from state file, not from reading Parquet)",
 )
 
 

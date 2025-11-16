@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATA_DIR="/data/polymarket"
+DATA_DIR="data/polymarket"
 STATE_FILE="$DATA_DIR/scraper_state.json"
 
 mkdir -p "$DATA_DIR"
