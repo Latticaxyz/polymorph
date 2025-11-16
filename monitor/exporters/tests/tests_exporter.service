@@ -3,7 +3,7 @@ Description="Polymorph Tests Prometheus Exporter"
 After=network.target
 
 [Service]
-User="ubuntu"
+User=ubuntu
 ExecStart=/usr/bin/python3 /opt/export/tests_exporter.py
 Restart=always
 

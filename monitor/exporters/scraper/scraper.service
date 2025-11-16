@@ -3,7 +3,7 @@ Description="Scraper runner"
 After=network.target
 
 [Service]
-User="william"
+User=william
 ExecStart=/usr/local/bin/run_scrape.sh
 Restart=on-failure
 
