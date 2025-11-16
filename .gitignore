@@ -32,3 +32,6 @@ uv.lock
 
 # Claude
 .claude/
+
+# Dev journal (need to generalize this)
+dev-journal.md
