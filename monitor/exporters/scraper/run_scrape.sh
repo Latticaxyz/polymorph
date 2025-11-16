@@ -9,7 +9,7 @@ mkdir -p "$DATA_DIR"
 run_start=$(date +%s)
 
 python3 - <<EOF
-import josn, os, time
+import json, os, time
 state_file = "${STATE_FILE}"
 state = {"run_start": ${run_start}, "status": 0}
 os.makedirs(os.path.dirname(state_file), exist_ok=True)
@@ -27,7 +27,7 @@ fi
 run_end=$(date +%s)
 
 python3 - <<EOF
-import josn, time, os, glob, pathlib
+import json, time, os, glob, pathlib
 state_file = "${STATE_FILE}"
 data_dir = pathlib.Path("${DATA_DIR}")
 
