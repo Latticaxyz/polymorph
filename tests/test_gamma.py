@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import polars as pl
@@ -40,7 +40,7 @@ class TestGammaDataSource:
         assert source.settings == context.settings
         assert source.base_url == GAMMA_BASE
         assert source.page_size == 250
-        assert source.max_pages == 200
+        assert source.max_pages is None
 
     def test_gamma_source_custom_params(self, context):
         """Test creating a Gamma data source with custom parameters."""
@@ -98,12 +98,19 @@ class TestGammaDataSource:
             },
         ]
 
-        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-            _ = params  # Mark as intentionally unused
-            return mock_markets
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        with patch.object(gamma_source, "_get", side_effect=mock_get):
-            result = await gamma_source.fetch(active_only=True)
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json = MagicMock(return_value=mock_markets)
+        mock_response.status_code = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                result = await gamma_source.fetch(active_only=True)
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 2
@@ -120,34 +127,51 @@ class TestGammaDataSource:
         page1 = [{"id": f"market{i}", "clobTokenIds": [f"{i}"]} for i in range(250)]
         page2 = [{"id": f"market{i}", "clobTokenIds": [f"{i}"]} for i in range(250, 300)]
 
-        # Mock responses for different pages
-        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-            if params is not None and params.get("offset") == 0:
-                return page1
-            elif params is not None and params.get("offset") == 250:
-                return page2
-            else:
-                return []
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        with patch.object(gamma_source, "_get", side_effect=mock_get):
-            result = await gamma_source.fetch(active_only=True)
+        mock_client = AsyncMock()
+
+        async def paginated_response(*args, **kwargs):
+            params = kwargs.get("params", {})
+            offset = params.get("offset", 0)
+            mock_response = MagicMock()
+            if offset == 0:
+                mock_response.json = MagicMock(return_value=page1)
+            elif offset == 250:
+                mock_response.json = MagicMock(return_value=page2)
+            else:
+                mock_response.json = MagicMock(return_value=[])
+            mock_response.status_code = 200
+            mock_response.raise_for_status = MagicMock()
+            return mock_response
+
+        mock_client.get.side_effect = paginated_response
+
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                result = await gamma_source.fetch(active_only=True)
 
         assert isinstance(result, pl.DataFrame)
         assert "token_ids" in result.columns
-        # Be flexible - implementation might evolve, but should fetch multiple pages
-        assert result.height > 250  # Got more than one page
-        assert result.height <= 500  # But reasonable upper bound
+        assert result.height == 300
 
     @pytest.mark.anyio
     async def test_fetch_empty_results(self, gamma_source):
         """Test fetching when no markets are returned."""
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-            _ = params  # Mark as intentionally unused
-            return []
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json = MagicMock(return_value=[])
+        mock_response.status_code = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch.object(gamma_source, "_get", side_effect=mock_get):
-            result = await gamma_source.fetch()
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                result = await gamma_source.fetch()
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 0
@@ -158,12 +182,25 @@ class TestGammaDataSource:
         """Test that active_only parameter is properly passed."""
         calls: list[dict[str, Any]] = []
 
-        async def mock_get(url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-            calls.append({"url": url, "params": params})
-            return []
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        with patch.object(gamma_source, "_get", side_effect=mock_get):
-            await gamma_source.fetch(active_only=True)
+        mock_client = AsyncMock()
+
+        async def track_call(url, *args, **kwargs):
+            params = kwargs.get("params", {})
+            calls.append({"params": params})
+            mock_response = MagicMock()
+            mock_response.json = MagicMock(return_value=[])
+            mock_response.status_code = 200
+            mock_response.raise_for_status = MagicMock()
+            return mock_response
+
+        mock_client.get.side_effect = track_call
+
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                await gamma_source.fetch(active_only=True)
 
         # Verify the call was made with closed=False
         assert len(calls) == 1
@@ -172,8 +209,9 @@ class TestGammaDataSource:
 
         # Test with active_only=False
         calls.clear()
-        with patch.object(gamma_source, "_get", side_effect=mock_get):
-            await gamma_source.fetch(active_only=False)
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                await gamma_source.fetch(active_only=False)
 
         # Verify closed param is not set
         assert len(calls) == 1
@@ -188,12 +226,19 @@ class TestGammaDataSource:
             {"id": "market2", "question": "Will it snow?"},
         ]
 
-        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-            _ = params  # Mark as intentionally unused
-            return mock_markets
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        with patch.object(gamma_source, "_get", side_effect=mock_get):
-            result = await gamma_source.fetch()
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json = MagicMock(return_value=mock_markets)
+        mock_response.status_code = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                result = await gamma_source.fetch()
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 2
@@ -210,13 +255,19 @@ class TestGammaDataSource:
             {"id": "market2", "clobTokenIds": ["456"]},
         ]
 
-        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-            _ = params  # Mark as intentionally unused
-            # Return data nested in "data" key
-            return {"data": mock_markets}
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        with patch.object(gamma_source, "_get", side_effect=mock_get):
-            result = await gamma_source.fetch()
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json = MagicMock(return_value={"data": mock_markets})
+        mock_response.status_code = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                result = await gamma_source.fetch()
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 2
@@ -228,13 +279,19 @@ class TestGammaDataSource:
             {"id": "market1", "clobTokenIds": ["123"]},
         ]
 
-        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-            _ = params  # Mark as intentionally unused
-            # Return data nested in "markets" key
-            return {"markets": mock_markets}
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        with patch.object(gamma_source, "_get", side_effect=mock_get):
-            result = await gamma_source.fetch()
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json = MagicMock(return_value={"markets": mock_markets})
+        mock_response.status_code = 200
+        mock_response.raise_for_status.return_value = None
+        mock_client.get.return_value = mock_response
+
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                result = await gamma_source.fetch()
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 1
@@ -248,18 +305,56 @@ class TestGammaDataSource:
         mock_page = [{"id": f"market{i}", "clobTokenIds": [f"{i}"]} for i in range(10)]
         call_count = [0]
 
-        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-            _ = params  # Mark as intentionally unused
-            call_count[0] += 1
-            return mock_page
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        with patch.object(source, "_get", side_effect=mock_get):
-            result = await source.fetch()
+        mock_client = AsyncMock()
+
+        async def count_calls(*args, **kwargs):
+            call_count[0] += 1
+            mock_response = MagicMock()
+            mock_response.json = MagicMock(return_value=mock_page)
+            mock_response.status_code = 200
+            mock_response.raise_for_status = MagicMock()
+            return mock_response
+
+        mock_client.get.side_effect = count_calls
+
+        with patch.object(source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(source, "_get_client", return_value=mock_client):
+                result = await source.fetch()
 
         # Should respect max_pages limit
         assert result.height <= 20  # At most 2 pages worth
         assert result.height >= 10  # At least got one page
         assert call_count[0] <= 2  # Should not exceed max_pages
+
+    @pytest.mark.anyio
+    async def test_fetch_max_markets_limit(self, gamma_source):
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
+
+        mock_client = AsyncMock()
+
+        async def smart_response(url, *args, **kwargs):
+            params = kwargs.get("params", {})
+            limit = params.get("limit", 250)
+            # Return only as many as requested
+            mock_page = [{"id": f"market{i}", "clobTokenIds": [f"{i}"]} for i in range(limit)]
+            mock_response = MagicMock()
+            mock_response.json = MagicMock(return_value=mock_page)
+            mock_response.status_code = 200
+            mock_response.raise_for_status = MagicMock()
+            return mock_response
+
+        mock_client.get.side_effect = smart_response
+
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                result = await gamma_source.fetch(active_only=True, max_markets=100)
+
+        # Should stop after getting 100 markets
+        assert result.height == 100
 
     @pytest.mark.anyio
     async def test_client_lifecycle(self, gamma_source):
@@ -291,58 +386,48 @@ class TestGammaDataSource:
     @pytest.mark.anyio
     async def test_http_error_handling(self, gamma_source):
         """Test handling of HTTP errors with realistic httpx objects."""
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-            _ = params  # Mark as intentionally unused
-            # Create realistic httpx request and response objects
-            request = httpx.Request("GET", "https://gamma-api.polymarket.com/markets")
-            response = httpx.Response(
-                404,
-                request=request,
-                content=b'{"error": "Not Found"}',
-            )
+        mock_client = AsyncMock()
+        request = httpx.Request("GET", "https://gamma-api.polymarket.com/markets")
+        response = httpx.Response(
+            404,
+            request=request,
+            content=b'{"error": "Not Found"}',
+        )
+
+        async def raise_error(*args, **kwargs):
             raise httpx.HTTPStatusError("404 Not Found", request=request, response=response)
 
-        with patch.object(gamma_source, "_get", side_effect=mock_get):
-            with pytest.raises(httpx.HTTPStatusError):
-                await gamma_source.fetch()
+        mock_client.get.side_effect = raise_error
+
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                with pytest.raises(httpx.HTTPStatusError):
+                    await gamma_source.fetch()
 
     @pytest.mark.anyio
-    async def test_retry_on_rate_limit(self, gamma_source):
-        """Test that retry logic handles HTTP 429 (rate limit) via HTTPStatusError."""
-        from unittest.mock import AsyncMock
+    async def test_rate_limit_error_handling(self, gamma_source):
+        """Test that 429 responses raise RateLimitError."""
+        from polymorph.core.rate_limit import RateLimitError
 
-        call_count = [0]
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        async def mock_client_get(*args, **kwargs):
-            """Mock httpx client.get to simulate rate limiting then success."""
-            call_count[0] += 1
-
-            # Fail first 2 attempts with rate limit, succeed on 3rd
-            if call_count[0] < 3:
-                request = httpx.Request("GET", "https://gamma-api.polymarket.com/markets")
-                response = httpx.Response(429, request=request, headers={"retry-after": "1"})
-                response._content = b'{"error": "Rate limited"}'
-                raise httpx.HTTPStatusError("429 Too Many Requests", request=request, response=response)
-
-            # Succeed on 3rd attempt - create proper mock response
-            mock_response = MagicMock()
-            mock_response.json.return_value = [{"id": "market1", "clobTokenIds": "123"}]
-            mock_response.raise_for_status.return_value = None
-            return mock_response
-
-        # Mock at the client level to preserve retry decorator behavior
         mock_client = AsyncMock()
-        mock_client.get.side_effect = mock_client_get
-        mock_client.timeout = 30
+        request = httpx.Request("GET", "https://gamma-api.polymarket.com/markets")
+        response = httpx.Response(429, request=request, headers={"retry-after": "1"})
 
-        with patch.object(gamma_source, "_get_client", new=AsyncMock(return_value=mock_client)):
-            result = await gamma_source.fetch()
+        async def return_429(*args, **kwargs):
+            return response
 
-        # Should have retried and eventually succeeded
-        assert isinstance(result, pl.DataFrame)
-        assert result.height >= 0
-        assert call_count[0] >= 3  # At least 3 attempts due to retries
+        mock_client.get.side_effect = return_429
+
+        with patch.object(gamma_source, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma_source, "_get_client", return_value=mock_client):
+                with pytest.raises(RateLimitError):
+                    await gamma_source.fetch()
 
     @pytest.mark.anyio
     @pytest.mark.integration
@@ -404,13 +489,19 @@ class TestGammaWithFetchPipeline:
 
         gamma = Gamma(context)
 
-        # Mock the _get method directly
-        async def mock_get(_url: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-            _ = params  # Mark as intentionally unused
-            return mock_markets
+        mock_rate_limiter = AsyncMock()
+        mock_rate_limiter.acquire = AsyncMock()
 
-        with patch.object(gamma, "_get", side_effect=mock_get):
-            result = await gamma.fetch(active_only=True)
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json = MagicMock(return_value=mock_markets)
+        mock_response.status_code = 200
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(gamma, "_get_rate_limiter", return_value=mock_rate_limiter):
+            with patch.object(gamma, "_get_client", return_value=mock_client):
+                result = await gamma.fetch(active_only=True)
 
         assert isinstance(result, pl.DataFrame)
         assert result.height == 1
