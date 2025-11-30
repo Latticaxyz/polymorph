@@ -35,10 +35,6 @@ class DataSource(ABC, Generic[T]):
     def name(self) -> str:
         pass
 
-    @abstractmethod
-    async def fetch(self) -> T:
-        pass
-
     async def validate(self, data: T) -> bool:
         return data is not None
 
