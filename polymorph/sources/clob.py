@@ -2,7 +2,8 @@ import httpx
 import polars as pl
 
 from polymorph.core.base import DataSource, PipelineContext
-from polymorph.core.retry import RateLimitError, with_retry
+from polymorph.core.rate_limit import CLOB_RATE_LIMIT, DATA_API_RATE_LIMIT, RateLimiter, RateLimitError
+from polymorph.core.retry import with_retry
 from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -14,6 +15,10 @@ JsonList = list[JsonValue]
 
 CLOB_BASE = "https://clob.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
+
+# CLOB API has a max time window of ~14 days for price history
+MAX_PRICE_HISTORY_DAYS = 14
+MAX_PRICE_HISTORY_SECONDS = MAX_PRICE_HISTORY_DAYS * 24 * 60 * 60
 
 
 class CLOB(DataSource[pl.DataFrame]):
@@ -31,10 +36,30 @@ class CLOB(DataSource[pl.DataFrame]):
         self.default_fidelity = default_fidelity
         self.max_trades = max_trades
         self._client: httpx.AsyncClient | None = None
+        self._clob_rate_limiter: RateLimiter | None = None
+        self._data_rate_limiter: RateLimiter | None = None
 
     @property
     def name(self) -> str:
         return "clob"
+
+    async def _get_clob_rate_limiter(self) -> RateLimiter:
+        if self._clob_rate_limiter is None:
+            self._clob_rate_limiter = await RateLimiter.get_instance(
+                name="clob",
+                max_requests=CLOB_RATE_LIMIT["max_requests"],
+                time_window_seconds=CLOB_RATE_LIMIT["time_window_seconds"],
+            )
+        return self._clob_rate_limiter
+
+    async def _get_data_rate_limiter(self) -> RateLimiter:
+        if self._data_rate_limiter is None:
+            self._data_rate_limiter = await RateLimiter.get_instance(
+                name="data_api",
+                max_requests=DATA_API_RATE_LIMIT["max_requests"],
+                time_window_seconds=DATA_API_RATE_LIMIT["time_window_seconds"],
+            )
+        return self._data_rate_limiter
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -44,34 +69,40 @@ class CLOB(DataSource[pl.DataFrame]):
             )
         return self._client
 
-    @with_retry(max_attempts=5, min_wait=1.0, max_wait=10.0)
-    async def _get(self, url: str, params: dict[str, int | str | bool] | None = None) -> JsonDict | JsonList:
+    @with_retry(max_attempts=5, min_wait=2.0, max_wait=30.0)
+    async def _get(
+        self, url: str, params: dict[str, int | str | bool] | None = None, use_data_api: bool = False
+    ) -> JsonDict | JsonList:
+        if use_data_api:
+            rate_limiter = await self._get_data_rate_limiter()
+        else:
+            rate_limiter = await self._get_clob_rate_limiter()
+
+        await rate_limiter.acquire()
+
         client = await self._get_client()
         r = await client.get(url, params=params, timeout=client.timeout)
 
         if r.status_code == 429:
+            logger.warning("Rate limit exceeded (429), raising RateLimitError")
             raise RateLimitError("Rate limit exceeded")
 
         r.raise_for_status()
         result: JsonDict | JsonList = r.json()
         return result
 
-    async def fetch_prices_history(
-        self,
-        token_id: str,
-        start_ts: int,
-        end_ts: int,
-        fidelity: int | None = None,
+    async def _fetch_price_history_chunk(
+        self, token_id: str, start_ts: int, end_ts: int, fidelity: int
     ) -> pl.DataFrame:
         url = f"{self.clob_base_url}/prices-history"
         params: dict[str, int | str] = {
             "market": token_id,
             "startTs": start_ts,
             "endTs": end_ts,
-            "fidelity": fidelity or self.default_fidelity,
+            "fidelity": fidelity,
         }
 
-        data = await self._get(url, params=params)
+        data = await self._get(url, params=params, use_data_api=False)
 
         if not data:
             return pl.DataFrame()
@@ -80,6 +111,49 @@ class CLOB(DataSource[pl.DataFrame]):
         df = df.with_columns([pl.lit(token_id).alias("token_id")])
 
         return df
+
+    async def fetch_prices_history(
+        self,
+        token_id: str,
+        start_ts: int,
+        end_ts: int,
+        fidelity: int | None = None,
+    ) -> pl.DataFrame:
+        fidelity = fidelity or self.default_fidelity
+
+        time_span = end_ts - start_ts
+
+        if time_span <= MAX_PRICE_HISTORY_SECONDS:
+            return await self._fetch_price_history_chunk(token_id, start_ts, end_ts, fidelity)
+
+        logger.debug(
+            f"Chunking price history for {token_id}: "
+            f"{time_span / 86400:.1f} days -> {time_span // MAX_PRICE_HISTORY_SECONDS + 1} chunks"
+        )
+
+        results: list[pl.DataFrame] = []
+        current_start = start_ts
+
+        while current_start < end_ts:
+            current_end = min(current_start + MAX_PRICE_HISTORY_SECONDS, end_ts)
+
+            df = await self._fetch_price_history_chunk(token_id, current_start, current_end, fidelity)
+            if df.height > 0:
+                results.append(df)
+
+            current_start = current_end + 1
+
+        if not results:
+            return pl.DataFrame()
+
+        combined = pl.concat(results, how="vertical")
+
+        if "t" in combined.columns:
+            combined = combined.unique(subset=["t"], maintain_order=True)
+
+        logger.debug(f"Fetched {combined.height} price points for {token_id}")
+
+        return combined
 
     async def fetch_trades_paged(
         self,
@@ -149,9 +223,6 @@ class CLOB(DataSource[pl.DataFrame]):
         logger.info(f"Fetched {len(df)} total trades")
 
         return df
-
-    async def fetch(self) -> pl.DataFrame:
-        return pl.DataFrame()
 
     async def close(self) -> None:
         if self._client is not None:
