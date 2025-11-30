@@ -61,6 +61,7 @@ exclude = '''
   | dist
   | \.eggs
   | \.egg-info
+  | monitor
 )/
 '''
 
@@ -72,12 +73,7 @@ skip_glob = ["**/.venv/**", "**/build/**", "**/dist/**"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-exclude = [
-  '\.venv',
-  "build",
-  "dist",
-  '\.eggs',
-]
+exclude = ['\.venv', "build", "dist", '\.eggs', "monitor"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -98,7 +94,8 @@ exclude = [
   "build",
   "dist",
   ".eggs",
-  "*.egg-info"
+  "*.egg-info",
+  "monitor"
 ]
 
 [tool.ruff.lint]
