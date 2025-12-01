@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from polymorph import __version__
 from polymorph.config import settings
 from polymorph.core.base import PipelineContext
 from polymorph.pipeline import FetchStage, ProcessStage
+from polymorph.remote import deploy_and_run
 from polymorph.sims import MonteCarloSimulator, ParameterSearcher
 from polymorph.utils.logging import setup as setup_logging
 
@@ -50,7 +52,7 @@ def init(
         _DEFAULT_DATA_DIR,
         "--data-dir",
         "-d",
-        help="Base data directory (overrides POLYMORPH_DATA_DIR / config)",
+        help="Base data directory (overrides POLYMORPH_DATA_DIR)",
         envvar="POLYMORPH_DATA_DIR",
     ),
     verbose: bool = typer.Option(
@@ -71,7 +73,19 @@ def init(
         help="Max concurrent HTTP requests (overrides POLYMORPH_MAX_CONCURRENCY)",
         envvar="POLYMORPH_MAX_CONCURRENCY",
     ),
+    remote: bool = typer.Option(
+        False,
+        "--remote",
+        "-r",
+        help="Execute command on remote server (requires POLYMORPH_REMOTE_* env vars)",
+    ),
 ) -> None:
+    if remote:
+        args = sys.argv[1:]
+        cleaned_args = [arg for arg in args if arg != "--remote"]
+        exit_code = deploy_and_run(cleaned_args)
+        sys.exit(exit_code)
+
     level = logging.DEBUG if verbose else logging.INFO
     setup_logging(level=level)
     settings.data_dir = str(data_dir)
