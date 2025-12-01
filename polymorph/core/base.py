@@ -6,7 +6,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel
 
-from polymorph.config import Settings
+from polymorph.config import DefaultSettings, RemoteSettings, Settings
 
 T = TypeVar("T")
 InputT = TypeVar("InputT")
@@ -14,15 +14,44 @@ OutputT = TypeVar("OutputT")
 
 
 @dataclass
+class RuntimeConfig:
+    http_timeout: int | None = None
+    max_concurrency: int | None = None
+    data_dir: str | None = None
+
+    def merge_with(self, base: DefaultSettings | RemoteSettings) -> "RuntimeConfig":
+        return RuntimeConfig(
+            http_timeout=self.http_timeout if self.http_timeout is not None else base.http_timeout,
+            max_concurrency=self.max_concurrency if self.max_concurrency is not None else base.max_concurrency,
+            data_dir=self.data_dir if self.data_dir is not None else base.data_dir,
+        )
+
+
+@dataclass
 class PipelineContext:
     settings: Settings
     run_timestamp: datetime
     data_dir: Path
+    runtime_config: RuntimeConfig = field(default_factory=RuntimeConfig)
+    use_remote: bool = False
     metadata: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if isinstance(self.data_dir, str):
             self.data_dir = Path(self.data_dir)
+
+    @property
+    def effective_config(self) -> RuntimeConfig:
+        base_config = self.settings.get_active_config(self.use_remote)
+        return self.runtime_config.merge_with(base_config)
+
+    @property
+    def http_timeout(self) -> int:
+        return self.effective_config.http_timeout  # type: ignore
+
+    @property
+    def max_concurrency(self) -> int:
+        return self.effective_config.max_concurrency  # type: ignore
 
 
 class DataSource(ABC, Generic[T]):
