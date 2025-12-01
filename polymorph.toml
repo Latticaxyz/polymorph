@@ -1,0 +1,13 @@
+[default]
+http_timeout = 30
+max_concurrency = 8
+data_dir = "data"
+
+[remote]
+http_timeout = 120
+max_concurrency = 32
+data_dir = "/data/polymorph"
+user = "william"
+host = "rust-killer"
+path = "/home/william/polymorph"
+ssh_key = "/Users/williamflanders/.ssh/william@seqouia-m4"
