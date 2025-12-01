@@ -37,7 +37,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
         self.include_gamma = include_gamma
         self.include_prices = include_prices
         self.include_trades = include_trades
-        self.max_concurrency = max_concurrency or context.settings.max_concurrency
+        self.max_concurrency = max_concurrency or context.max_concurrency
 
         self.storage = ParquetStorage(context.data_dir)
 
