@@ -64,7 +64,7 @@ class CLOB(DataSource[pl.DataFrame]):
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
-                timeout=self.settings.http_timeout,
+                timeout=self.context.http_timeout,
                 http2=True,
             )
         return self._client
