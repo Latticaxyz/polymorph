@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 import subprocess  # nosec B404
+import tempfile
+import tomllib
 from pathlib import Path
 
 from rich.console import Console
@@ -23,18 +24,17 @@ class RemoteConfig:
         return f"{self.remote_user}@{self.remote_host}"
 
     @classmethod
-    def from_env(cls) -> RemoteConfig | None:
-        remote_user = os.getenv("POLYMORPH_REMOTE_USER")
-        remote_host = os.getenv("POLYMORPH_REMOTE_HOST")
+    def from_config(cls) -> RemoteConfig | None:
+        from polymorph.config import settings
 
-        if not remote_user or not remote_host:
+        if not settings.remote.user or not settings.remote.host:
             return None
 
         return cls(
-            remote_user=remote_user,
-            remote_host=remote_host,
-            remote_path=os.getenv("POLYMORPH_REMOTE_PATH", "~/polymorph"),
-            ssh_key=os.getenv("POLYMORPH_SSH_KEY"),
+            remote_user=settings.remote.user,
+            remote_host=settings.remote.host,
+            remote_path=settings.remote.path or "/home/user/polymorph",
+            ssh_key=settings.remote.ssh_key or "",
         )
 
 
@@ -51,6 +51,7 @@ def sync_code(config: RemoteConfig, local_path: Path) -> bool:
         "*.egg-info",
         "dist/",
         "build/",
+        "polymorph.toml",
     ]
 
     rsync_cmd = ["rsync", "-az", "--delete"]
@@ -77,6 +78,42 @@ def sync_code(config: RemoteConfig, local_path: Path) -> bool:
         return False
 
     console.print("[green]✓[/green]")
+
+    local_toml = local_path / "polymorph.toml"
+    if local_toml.exists():
+        console.print("[dim]→ Syncing config (remote→default)...[/dim]", end=" ")
+        try:
+            with open(local_toml, "rb") as f:
+                config_data = tomllib.load(f)
+
+            remote_config_data = config_data.get("remote", {})
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as tmp:
+                tmp.write("[default]\n")
+                for key, value in remote_config_data.items():
+                    if isinstance(value, str):
+                        tmp.write(f'{key} = "{value}"\n')
+                    else:
+                        tmp.write(f"{key} = {value}\n")
+                tmp_path = tmp.name
+
+            scp_cmd = ["scp"]
+            if config.ssh_key:
+                scp_cmd.extend(["-i", config.ssh_key])
+            scp_cmd.extend([tmp_path, f"{config.remote_address}:{config.remote_path}/polymorph.toml"])
+
+            result = subprocess.run(scp_cmd, capture_output=True, check=False)  # nosec B603
+            Path(tmp_path).unlink()
+
+            if result.returncode != 0:
+                console.print("[red]✗[/red]")
+                return False
+
+            console.print("[green]✓[/green]")
+        except Exception as e:
+            console.print(f"[red]✗[/red] ({e})")
+            return False
+
     return True
 
 
@@ -105,15 +142,15 @@ def execute_remote(config: RemoteConfig, command_args: list[str]) -> int:
 
 
 def deploy_and_run(command_args: list[str]) -> int:
-    config = RemoteConfig.from_env()
+    config = RemoteConfig.from_config()
 
     if not config:
         console.print("[red]Error: Remote server not configured[/red]")
-        console.print("\nSet these environment variables:")
-        console.print("  export POLYMORPH_REMOTE_USER=your_username")
-        console.print("  export POLYMORPH_REMOTE_HOST=your.server.com")
-        console.print("  export POLYMORPH_REMOTE_PATH=~/polymorph  # optional")
-        console.print("  export POLYMORPH_SSH_KEY=~/.ssh/id_rsa    # optional")
+        console.print("\nConfigure in polymorph.toml [remote] section:")
+        console.print('  user = "your_username"')
+        console.print('  host = "your.server.com"')
+        console.print('  path = "/home/your_username/polymorph"')
+        console.print('  ssh_key = "/path/to/ssh/key"')
         return 1
 
     current_path = Path.cwd()
