@@ -13,7 +13,7 @@ from rich.table import Table
 
 from polymorph import __version__
 from polymorph.config import settings
-from polymorph.core.base import PipelineContext
+from polymorph.core.base import PipelineContext, RuntimeConfig
 from polymorph.pipeline import FetchStage, ProcessStage
 from polymorph.remote import deploy_and_run
 from polymorph.sims import MonteCarloSimulator, ParameterSearcher
@@ -31,29 +31,35 @@ app = typer.Typer(
 console = Console()
 
 # Module-level defaults to avoid B008 flake8 errors
-_DEFAULT_DATA_DIR = Path(settings.data_dir)
-_DEFAULT_HTTP_TIMEOUT = settings.http_timeout
-_DEFAULT_MAX_CONCURRENCY = settings.max_concurrency
-_DEFAULT_RAW_DIR = Path(settings.data_dir) / "raw"
-_DEFAULT_PROCESSED_DIR = Path(settings.data_dir) / "processed"
+_DEFAULT_DATA_DIR = Path(settings.default.data_dir)
+_DEFAULT_HTTP_TIMEOUT = settings.default.http_timeout
+_DEFAULT_MAX_CONCURRENCY = settings.default.max_concurrency
+_DEFAULT_RAW_DIR = Path(settings.default.data_dir) / "raw"
+_DEFAULT_PROCESSED_DIR = Path(settings.default.data_dir) / "processed"
 
 
-def create_context(data_dir: Path) -> PipelineContext:
+def create_context(
+    data_dir: Path,
+    runtime_config: RuntimeConfig | None = None,
+    use_remote: bool = False,
+) -> PipelineContext:
     return PipelineContext(
         settings=settings,
         run_timestamp=datetime.now(timezone.utc),
         data_dir=data_dir,
+        runtime_config=runtime_config or RuntimeConfig(),
+        use_remote=use_remote,
     )
 
 
 @app.callback()
 def init(
+    ctx: typer.Context,
     data_dir: Path = typer.Option(
         _DEFAULT_DATA_DIR,
         "--data-dir",
         "-d",
-        help="Base data directory (overrides POLYMORPH_DATA_DIR)",
-        envvar="POLYMORPH_DATA_DIR",
+        help="Base data directory (overrides TOML config for this command)",
     ),
     verbose: bool = typer.Option(
         False,
@@ -64,33 +70,35 @@ def init(
     http_timeout: int = typer.Option(
         _DEFAULT_HTTP_TIMEOUT,
         "--http-timeout",
-        help="HTTP timeout in seconds (overrides POLYMORPH_HTTP_TIMEOUT)",
-        envvar="POLYMORPH_HTTP_TIMEOUT",
+        help="HTTP timeout in seconds (overrides TOML config for this command)",
     ),
     max_concurrency: int = typer.Option(
         _DEFAULT_MAX_CONCURRENCY,
         "--max-concurrency",
-        help="Max concurrent HTTP requests (overrides POLYMORPH_MAX_CONCURRENCY)",
-        envvar="POLYMORPH_MAX_CONCURRENCY",
+        help="Max concurrent HTTP requests (overrides TOML config for this command)",
     ),
     remote: bool = typer.Option(
         False,
         "--remote",
         "-r",
-        help="Execute command on remote server (requires POLYMORPH_REMOTE_* env vars)",
+        help="Execute command on remote server (overrides TOML config for this command)",
     ),
 ) -> None:
     if remote:
         args = sys.argv[1:]
-        cleaned_args = [arg for arg in args if arg != "--remote"]
+        cleaned_args = [arg for arg in args if arg not in ["--remote", "-r"]]
         exit_code = deploy_and_run(cleaned_args)
         sys.exit(exit_code)
 
     level = logging.DEBUG if verbose else logging.INFO
     setup_logging(level=level)
-    settings.data_dir = str(data_dir)
-    settings.http_timeout = http_timeout
-    settings.max_concurrency = max_concurrency
+
+    ctx.obj = RuntimeConfig(
+        http_timeout=http_timeout if http_timeout != _DEFAULT_HTTP_TIMEOUT else None,
+        max_concurrency=max_concurrency if max_concurrency != _DEFAULT_MAX_CONCURRENCY else None,
+        data_dir=str(data_dir) if data_dir != _DEFAULT_DATA_DIR else None,
+    )
+
     console.log(
         f"polymorph v{__version__} "
         f"(data_dir={data_dir}, timeout={http_timeout}s, max_concurrency={max_concurrency})"
@@ -103,14 +111,15 @@ def version() -> None:
     table.add_column("Field")
     table.add_column("Value")
     table.add_row("Version", __version__)
-    table.add_row("Data dir", settings.data_dir)
-    table.add_row("HTTP timeout", str(settings.http_timeout))
-    table.add_row("Max concurrency", str(settings.max_concurrency))
+    table.add_row("Data dir", settings.default.data_dir)
+    table.add_row("HTTP timeout", str(settings.default.http_timeout))
+    table.add_row("Max concurrency", str(settings.default.max_concurrency))
     console.print(table)
 
 
 @app.command(help="Fetch data and store to Parquet files")
 def fetch(
+    ctx: typer.Context,
     months: int = typer.Option(1, "--months", "-m", help="Number of months to backfill"),
     out: Path = typer.Option(_DEFAULT_DATA_DIR, "--out", help="Root output dir for raw data"),
     include_trades: bool = typer.Option(True, "--trades/--no-trades", help="Include recent trades via Data-API"),
@@ -125,7 +134,11 @@ def fetch(
     console.log(
         f"months={months}, out={out}, gamma={include_gamma}, " f"prices={include_prices}, trades={include_trades}"
     )
-    context = create_context(out)
+
+    runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
+
+    context = create_context(out, runtime_config=runtime_config)
+
     stage = FetchStage(
         context=context,
         n_months=months,
@@ -140,6 +153,7 @@ def fetch(
 
 @app.command(help="Processing tools and algorithms (ex. Monte Carlo simulations")
 def process(
+    ctx: typer.Context,
     in_: Path = typer.Option(
         _DEFAULT_RAW_DIR,
         "--in",
@@ -152,7 +166,9 @@ def process(
     ),
 ) -> None:
     console.log(f"in={in_}, out={out}")
-    context = create_context(Path(settings.data_dir))
+    runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
+
+    context = create_context(Path(settings.default.data_dir), runtime_config=runtime_config)
     stage = ProcessStage(context=context, raw_dir=in_, processed_dir=out)
     asyncio.run(stage.execute())
     console.print("Processing complete.")
