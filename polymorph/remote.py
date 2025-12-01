@@ -81,7 +81,7 @@ def sync_code(config: RemoteConfig, local_path: Path) -> bool:
 
     local_toml = local_path / "polymorph.toml"
     if local_toml.exists():
-        console.print("[dim]→ Syncing config (remote→default)...[/dim]", end=" ")
+        console.print("[dim]→ Syncing config (→ remote)...[/dim]", end=" ")
         try:
             with open(local_toml, "rb") as f:
                 config_data = tomllib.load(f)
