@@ -93,8 +93,51 @@ class Gamma(DataSource[pl.DataFrame]):
             return [s]
         return [str(v)]
 
-    async def fetch(self, active_only: bool = True, max_markets: int | None = None) -> pl.DataFrame:
-        logger.info(f"Fetching markets from Gamma API (active_only={active_only})")
+    @staticmethod
+    def _classify_market_type(row: dict[str, JsonValue]) -> str:
+        question = row.get("question", "")
+        tags = row.get("tags", None)
+
+        question_lower = question.lower() if isinstance(question, str) else ""
+
+        tag_str = ""
+        if tags is not None:
+            if isinstance(tags, list):
+                tag_str = " ".join(str(t) for t in tags).lower()
+            elif isinstance(tags, str):
+                tag_str = tags.lower()
+
+        combined = f"{question_lower} {tag_str}"
+
+        # Election
+        if any(kw in combined for kw in ["election", "president", "senator", "governor", "vote", "win", "nominee"]):
+            return "election"
+
+        # Sports
+        if any(
+            kw in combined
+            for kw in ["nfl", "nba", "mlb", "nhl", "soccer", "football", "basketball", "championship", "super bowl"]
+        ):
+            return "sports"
+
+        # Crypto
+        if any(kw in combined for kw in ["bitcoin", "eth", "crypto", "btc", "coin", "token", "blockchain"]):
+            return "crypto"
+
+        # Deadline
+        if any(kw in combined for kw in ["by", "before", "after", "2024", "2025", "2026"]) and "?" in question_lower:
+            return "deadline"
+
+        return "other"
+
+    async def fetch(
+        self,
+        active_only: bool = True,
+        max_markets: int | None = None,
+        resolved_only: bool = False,
+        include_resolution_data: bool = True,
+    ) -> pl.DataFrame:
+        logger.info(f"Fetching markets from Gamma API (active_only={active_only}, resolved_only={resolved_only})")
 
         url = f"{self.base_url}/markets"
         offset = 0
@@ -116,8 +159,11 @@ class Gamma(DataSource[pl.DataFrame]):
                 batch_size = min(batch_size, remaining)
 
             params: dict[str, int | bool] = {"limit": batch_size, "offset": offset}
-            if active_only:
+
+            if active_only and not resolved_only:
                 params["closed"] = False
+            elif resolved_only:
+                params["closed"] = True
 
             payload = await self._get(url, params=params)
 
@@ -146,7 +192,7 @@ class Gamma(DataSource[pl.DataFrame]):
             offset += batch_size
             page += 1
 
-        logger.info(f"Fteched {len(markets_data)} total markets")
+        logger.info(f"Fetched {len(markets_data)} total markets")
 
         if not markets_data:
             return pl.DataFrame({"token_ids": pl.Series([], dtype=pl.List(pl.Utf8))})
@@ -163,7 +209,29 @@ class Gamma(DataSource[pl.DataFrame]):
         else:
             df = df.with_columns(pl.lit([]).cast(pl.List(pl.Utf8)).alias("token_ids"))
 
+        if "question" in df.columns:
+            if "tags" not in df.columns:
+                df = df.with_columns(pl.lit(None).alias("tags"))
+
+            df = df.with_columns(
+                pl.struct(["question", "tags"])
+                .map_elements(lambda x: self._classify_market_type(x), return_dtype=pl.Utf8)
+                .alias("market_type")
+            )
+
+        if include_resolution_data and "closed" in df.columns:
+            if "resolved" not in df.columns:
+                df = df.with_columns(pl.col("closed").alias("resolved"))
+
         return df
+
+    async def fetch_resolved_markets(self, max_markets: int | None = None) -> pl.DataFrame:
+        return await self.fetch(
+            active_only=False,
+            resolved_only=True,
+            include_resolution_data=True,
+            max_markets=max_markets,
+        )
 
     async def close(self) -> None:
         if self._client is not None:
