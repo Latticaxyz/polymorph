@@ -14,6 +14,12 @@ class Market(BaseModel):
     archived: bool | None = None
     created_at: str | None = Field(None, alias="createdAt")
     end_date: str | None = Field(None, alias="endDate")
+    resolved: bool | None = None
+    resolution_date: str | None = Field(None, alias="resolutionDate")
+    resolution_outcome: str | None = Field(None, alias="resolutionOutcome")
+    tags: list[str] | None = None
+    category: str | None = None
+    rewards: dict[str, float] | None = None
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 
@@ -92,3 +98,60 @@ class Trade(BaseModel):
                 # Invalid datetime format or out of range - return None
                 return None
         return None
+
+
+class OrderBookLevel(BaseModel):
+    price: float
+    size: float
+
+
+class OrderBook(BaseModel):
+    token_id: str
+    timestamp: int
+    bids: list[OrderBookLevel] = Field(default_factory=list)
+    asks: list[OrderBookLevel] = Field(default_factory=list)
+    mid_price: float | None = None
+    spread: float | None = None
+    best_bid: float | None = None
+    best_ask: float | None = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    def calculate_spread(self) -> float | None:
+        if self.best_bid is not None and self.best_ask is not None:
+            return self.best_ask - self.best_bid
+        return None
+
+    def calculate_mid_price(self) -> float | None:
+        if self.best_bid is not None and self.best_ask is not None:
+            return (self.best_bid + self.best_ask) / 2
+        return None
+
+    def get_depth_at_distance(self, distance: float, side: str = "both") -> float:
+        if self.mid_price is None:
+            return 0.0
+
+        depth = 0.0
+
+        if side in ("bid", "both"):
+            for level in self.bids:
+                if level.price >= self.mid_price - distance:
+                    depth += level.size
+
+        if side in ("ask", "both"):
+            for level in self.asks:
+                if level.price <= self.mid_price + distance:
+                    depth += level.size
+
+        return depth
+
+
+class MarketResolution(BaseModel):
+    market_id: str
+    condition_id: str | None = None
+    outcome: str  # YES, NO, INVALID
+    resolution_timestamp: int | None = None
+    resolution_date: str | None = None
+    winning_outcome_price: float | None = None
+
+    model_config = {"arbitrary_types_allowed": True}
