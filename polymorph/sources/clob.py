@@ -4,6 +4,7 @@ import polars as pl
 from polymorph.core.base import DataSource, PipelineContext
 from polymorph.core.rate_limit import CLOB_RATE_LIMIT, DATA_API_RATE_LIMIT, RateLimiter, RateLimitError
 from polymorph.core.retry import with_retry
+from polymorph.models.api import OrderBook, OrderBookLevel
 from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -154,6 +155,138 @@ class CLOB(DataSource[pl.DataFrame]):
         logger.debug(f"Fetched {combined.height} price points for {token_id}")
 
         return combined
+
+    async def fetch_order_book(self, token_id: str) -> OrderBook:
+        url = f"{self.clob_base_url}/book"
+        params: dict[str, int | str | bool] = {"token_id": token_id}
+
+        data = await self._get(url, params=params, use_data_api=False)
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Unexpected order book response format: {type(data)}")
+
+        # Parse bids and asks
+        bids_data = data.get("bids", [])
+        asks_data = data.get("asks", [])
+
+        bids = []
+        if isinstance(bids_data, list):
+            for level in bids_data:
+                if isinstance(level, dict):
+                    price = level.get("price")
+                    size = level.get("size")
+                    if (
+                        price is not None
+                        and size is not None
+                        and isinstance(price, (int, float, str))
+                        and isinstance(size, (int, float, str))
+                    ):
+                        bids.append(OrderBookLevel(price=float(price), size=float(size)))
+
+        asks = []
+        if isinstance(asks_data, list):
+            for level in asks_data:
+                if isinstance(level, dict):
+                    price = level.get("price")
+                    size = level.get("size")
+                    if (
+                        price is not None
+                        and size is not None
+                        and isinstance(price, (int, float, str))
+                        and isinstance(size, (int, float, str))
+                    ):
+                        asks.append(OrderBookLevel(price=float(price), size=float(size)))
+
+        # Sort bids descending, asks ascending
+        bids = sorted(bids, key=lambda x: x.price, reverse=True)
+        asks = sorted(asks, key=lambda x: x.price)
+
+        # Extract best bid/ask
+        best_bid = bids[0].price if bids else None
+        best_ask = asks[0].price if asks else None
+
+        # FIXED: Parse timestamp safely
+        timestamp_val = data.get("timestamp", 0)
+        timestamp = int(timestamp_val) if isinstance(timestamp_val, (int, float)) else 0
+
+        # Create order book object
+        order_book = OrderBook(
+            token_id=token_id,
+            timestamp=timestamp,
+            bids=bids,
+            asks=asks,
+            best_bid=best_bid,
+            best_ask=best_ask,
+        )
+
+        # Calculate derived metrics
+        order_book.mid_price = order_book.calculate_mid_price()
+        order_book.spread = order_book.calculate_spread()
+
+        return order_book
+
+    async def fetch_order_books_batch(self, token_ids: list[str]) -> list[OrderBook]:
+        results: list[OrderBook] = []
+
+        for token_id in token_ids:
+            try:
+                order_book = await self.fetch_order_book(token_id)
+                results.append(order_book)
+            except Exception as e:
+                logger.error(f"Failed to fetch order book for {token_id}: {e}")
+
+        return results
+
+    async def fetch_order_book_to_dataframe(self, token_id: str) -> pl.DataFrame:
+        order_book = await self.fetch_order_book(token_id)
+
+        bid_rows = [
+            {
+                "token_id": order_book.token_id,
+                "timestamp": order_book.timestamp,
+                "side": "bid",
+                "price": level.price,
+                "size": level.size,
+            }
+            for level in order_book.bids
+        ]
+
+        ask_rows = [
+            {
+                "token_id": order_book.token_id,
+                "timestamp": order_book.timestamp,
+                "side": "ask",
+                "price": level.price,
+                "size": level.size,
+            }
+            for level in order_book.asks
+        ]
+
+        all_rows = bid_rows + ask_rows
+
+        if not all_rows:
+            return pl.DataFrame(
+                schema={
+                    "token_id": pl.Utf8,
+                    "timestamp": pl.Int64,
+                    "side": pl.Utf8,
+                    "price": pl.Float64,
+                    "size": pl.Float64,
+                }
+            )
+
+        return pl.DataFrame(all_rows)
+
+    async def fetch_spread(self, token_id: str) -> dict[str, str | float | int | None]:
+        order_book = await self.fetch_order_book(token_id)
+        return {
+            "token_id": token_id,
+            "bid": order_book.best_bid,
+            "ask": order_book.best_ask,
+            "mid": order_book.mid_price,
+            "spread": order_book.spread,
+            "timestamp": order_book.timestamp,
+        }
 
     async def fetch_trades_paged(
         self,
