@@ -9,6 +9,13 @@ wheels/
 # pytest
 .pytest_cache
 
+# coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
 # mypy
 .mypy_cache/
 
@@ -32,6 +39,9 @@ uv.lock
 
 # Claude
 .claude/
+CLAUDE.md
 
 # Dev journal (need to generalize this)
 dev-journal.md
+target.md
+digest.txt
