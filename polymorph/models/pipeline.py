@@ -11,6 +11,10 @@ class FetchResult(BaseModel):
     trades_path: Path | None = None
     run_timestamp: datetime
     market_count: int = 0
+    orderbooks_path: Path | None = None
+    orderbook_levels: int = 0
+    spreads_path: Path | None = None
+    spreads_count: int = 0
     token_count: int = 0
     trade_count: int = 0
     price_point_count: int = 0
