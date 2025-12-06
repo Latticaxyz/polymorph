@@ -156,7 +156,7 @@ class CLOB(DataSource[pl.DataFrame]):
 
         return combined
 
-    async def fetch_order_book(self, token_id: str) -> OrderBook:
+    async def fetch_orderbook(self, token_id: str) -> OrderBook:
         url = f"{self.clob_base_url}/book"
         params: dict[str, int | str | bool] = {"token_id": token_id}
 
@@ -210,7 +210,7 @@ class CLOB(DataSource[pl.DataFrame]):
         timestamp = int(timestamp_val) if isinstance(timestamp_val, (int, float)) else 0
 
         # Create order book object
-        order_book = OrderBook(
+        orderbook = OrderBook(
             token_id=token_id,
             timestamp=timestamp,
             bids=bids,
@@ -220,46 +220,46 @@ class CLOB(DataSource[pl.DataFrame]):
         )
 
         # Calculate derived metrics
-        order_book.mid_price = order_book.calculate_mid_price()
-        order_book.spread = order_book.calculate_spread()
+        orderbook.mid_price = orderbook.calculate_mid_price()
+        orderbook.spread = orderbook.calculate_spread()
 
-        return order_book
+        return orderbook
 
-    async def fetch_order_books_batch(self, token_ids: list[str]) -> list[OrderBook]:
+    async def fetch_orderbooks_batch(self, token_ids: list[str]) -> list[OrderBook]:
         results: list[OrderBook] = []
 
         for token_id in token_ids:
             try:
-                order_book = await self.fetch_order_book(token_id)
-                results.append(order_book)
+                orderbook = await self.fetch_orderbook(token_id)
+                results.append(orderbook)
             except Exception as e:
                 logger.error(f"Failed to fetch order book for {token_id}: {e}")
 
         return results
 
-    async def fetch_order_book_to_dataframe(self, token_id: str) -> pl.DataFrame:
-        order_book = await self.fetch_order_book(token_id)
+    async def fetch_orderbook_to_dataframe(self, token_id: str) -> pl.DataFrame:
+        orderbook = await self.fetch_orderbook(token_id)
 
         bid_rows = [
             {
-                "token_id": order_book.token_id,
-                "timestamp": order_book.timestamp,
+                "token_id": orderbook.token_id,
+                "timestamp": orderbook.timestamp,
                 "side": "bid",
                 "price": level.price,
                 "size": level.size,
             }
-            for level in order_book.bids
+            for level in orderbook.bids
         ]
 
         ask_rows = [
             {
-                "token_id": order_book.token_id,
-                "timestamp": order_book.timestamp,
+                "token_id": orderbook.token_id,
+                "timestamp": orderbook.timestamp,
                 "side": "ask",
                 "price": level.price,
                 "size": level.size,
             }
-            for level in order_book.asks
+            for level in orderbook.asks
         ]
 
         all_rows = bid_rows + ask_rows
@@ -278,14 +278,14 @@ class CLOB(DataSource[pl.DataFrame]):
         return pl.DataFrame(all_rows)
 
     async def fetch_spread(self, token_id: str) -> dict[str, str | float | int | None]:
-        order_book = await self.fetch_order_book(token_id)
+        orderbook = await self.fetch_orderbook(token_id)
         return {
             "token_id": token_id,
-            "bid": order_book.best_bid,
-            "ask": order_book.best_ask,
-            "mid": order_book.mid_price,
-            "spread": order_book.spread,
-            "timestamp": order_book.timestamp,
+            "bid": orderbook.best_bid,
+            "ask": orderbook.best_ask,
+            "mid": orderbook.mid_price,
+            "spread": orderbook.spread,
+            "timestamp": orderbook.timestamp,
         }
 
     async def fetch_trades_paged(
