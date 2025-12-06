@@ -9,5 +9,5 @@ max_concurrency = 32
 data_dir = "/data/polymorph"
 user = "william"
 host = "rust-killer"
-path = "/home/william/polymorph"
+path = "/home/william/lattica"
 ssh_key = "/Users/williamflanders/.ssh/william@seqouia-m4"
