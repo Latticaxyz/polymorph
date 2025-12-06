@@ -16,7 +16,7 @@ from polymorph.models.api import OrderBook, OrderBookLevel
 from polymorph.sources.clob import CLOB, CLOB_BASE, DATA_API
 
 
-def create_order_book_response(
+def create_orderbook_response(
     token_id: str = "123",
     timestamp: int = 1609459200,
     bids: list[dict[str, str | float]] | None = None,
@@ -657,12 +657,12 @@ class TestCLOBOrderBookFunctions:
         """Create a CLOB data source."""
         return CLOB(context)
 
-    # Tests for fetch_order_book()
+    # Tests for fetch_orderbook()
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_basic(self, clob_source):
+    async def test_fetch_orderbook_basic(self, clob_source):
         """Test successfully fetching and parsing order book with normal data."""
-        mock_order_book_data = create_order_book_response(
+        mock_orderbook_data = create_orderbook_response(
             token_id="123",
             timestamp=1609459200,
             bids=[
@@ -682,14 +682,14 @@ class TestCLOBOrderBookFunctions:
 
         mock_client = AsyncMock()
         mock_response = MagicMock()
-        mock_response.json = MagicMock(return_value=mock_order_book_data)
+        mock_response.json = MagicMock(return_value=mock_orderbook_data)
         mock_response.status_code = 200
         mock_response.raise_for_status = MagicMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with patch.object(clob_source, "_get_clob_rate_limiter", return_value=mock_rate_limiter):
             with patch.object(clob_source, "_get_client", return_value=mock_client):
-                result = await clob_source.fetch_order_book("123")
+                result = await clob_source.fetch_orderbook("123")
 
         assert isinstance(result, OrderBook)
         assert result.token_id == "123"
@@ -707,9 +707,9 @@ class TestCLOBOrderBookFunctions:
         assert result.asks[0].price < result.asks[1].price < result.asks[2].price
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_empty_bids(self, clob_source):
+    async def test_fetch_orderbook_empty_bids(self, clob_source):
         """Test order book with only asks (no bids)."""
-        mock_order_book_data = create_order_book_response(
+        mock_orderbook_data = create_orderbook_response(
             bids=[],
             asks=[{"price": "0.61", "size": "80"}],
         )
@@ -719,13 +719,13 @@ class TestCLOBOrderBookFunctions:
 
         mock_client = AsyncMock()
         mock_response = MagicMock()
-        mock_response.json = MagicMock(return_value=mock_order_book_data)
+        mock_response.json = MagicMock(return_value=mock_orderbook_data)
         mock_response.status_code = 200
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with patch.object(clob_source, "_get_clob_rate_limiter", return_value=mock_rate_limiter):
             with patch.object(clob_source, "_get_client", return_value=mock_client):
-                result = await clob_source.fetch_order_book("123")
+                result = await clob_source.fetch_orderbook("123")
 
         assert len(result.bids) == 0
         assert len(result.asks) == 1
@@ -735,9 +735,9 @@ class TestCLOBOrderBookFunctions:
         assert result.spread is None
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_empty_asks(self, clob_source):
+    async def test_fetch_orderbook_empty_asks(self, clob_source):
         """Test order book with only bids (no asks)."""
-        mock_order_book_data = create_order_book_response(
+        mock_orderbook_data = create_orderbook_response(
             bids=[{"price": "0.60", "size": "100"}],
             asks=[],
         )
@@ -747,13 +747,13 @@ class TestCLOBOrderBookFunctions:
 
         mock_client = AsyncMock()
         mock_response = MagicMock()
-        mock_response.json = MagicMock(return_value=mock_order_book_data)
+        mock_response.json = MagicMock(return_value=mock_orderbook_data)
         mock_response.status_code = 200
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with patch.object(clob_source, "_get_clob_rate_limiter", return_value=mock_rate_limiter):
             with patch.object(clob_source, "_get_client", return_value=mock_client):
-                result = await clob_source.fetch_order_book("123")
+                result = await clob_source.fetch_orderbook("123")
 
         assert len(result.bids) == 1
         assert len(result.asks) == 0
@@ -763,22 +763,22 @@ class TestCLOBOrderBookFunctions:
         assert result.spread is None
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_empty(self, clob_source):
+    async def test_fetch_orderbook_empty(self, clob_source):
         """Test completely empty order book."""
-        mock_order_book_data = create_order_book_response(bids=[], asks=[])
+        mock_orderbook_data = create_orderbook_response(bids=[], asks=[])
 
         mock_rate_limiter = AsyncMock()
         mock_rate_limiter.acquire = AsyncMock()
 
         mock_client = AsyncMock()
         mock_response = MagicMock()
-        mock_response.json = MagicMock(return_value=mock_order_book_data)
+        mock_response.json = MagicMock(return_value=mock_orderbook_data)
         mock_response.status_code = 200
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with patch.object(clob_source, "_get_clob_rate_limiter", return_value=mock_rate_limiter):
             with patch.object(clob_source, "_get_client", return_value=mock_client):
-                result = await clob_source.fetch_order_book("123")
+                result = await clob_source.fetch_orderbook("123")
 
         assert len(result.bids) == 0
         assert len(result.asks) == 0
@@ -788,9 +788,9 @@ class TestCLOBOrderBookFunctions:
         assert result.spread is None
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_sorting(self, clob_source):
+    async def test_fetch_orderbook_sorting(self, clob_source):
         """Test bids/asks are correctly sorted even if API returns unsorted."""
-        mock_order_book_data = create_order_book_response(
+        mock_orderbook_data = create_orderbook_response(
             bids=[
                 {"price": "0.58", "size": "150"},  # lowest first (wrong order)
                 {"price": "0.60", "size": "100"},  # highest
@@ -808,13 +808,13 @@ class TestCLOBOrderBookFunctions:
 
         mock_client = AsyncMock()
         mock_response = MagicMock()
-        mock_response.json = MagicMock(return_value=mock_order_book_data)
+        mock_response.json = MagicMock(return_value=mock_orderbook_data)
         mock_response.status_code = 200
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with patch.object(clob_source, "_get_clob_rate_limiter", return_value=mock_rate_limiter):
             with patch.object(clob_source, "_get_client", return_value=mock_client):
-                result = await clob_source.fetch_order_book("123")
+                result = await clob_source.fetch_orderbook("123")
 
         # Verify bids sorted descending
         assert result.bids[0].price == 0.60
@@ -829,10 +829,10 @@ class TestCLOBOrderBookFunctions:
         assert result.best_ask == 0.61
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_timestamp_parsing(self, clob_source):
+    async def test_fetch_orderbook_timestamp_parsing(self, clob_source):
         """Test handle various timestamp formats."""
         # Test with integer timestamp
-        mock_order_book_data = create_order_book_response(
+        mock_orderbook_data = create_orderbook_response(
             timestamp=1609459200,
             bids=[{"price": "0.60", "size": "100"}],
             asks=[],
@@ -843,18 +843,18 @@ class TestCLOBOrderBookFunctions:
 
         mock_client = AsyncMock()
         mock_response = MagicMock()
-        mock_response.json = MagicMock(return_value=mock_order_book_data)
+        mock_response.json = MagicMock(return_value=mock_orderbook_data)
         mock_response.status_code = 200
         mock_client.get = AsyncMock(return_value=mock_response)
 
         with patch.object(clob_source, "_get_clob_rate_limiter", return_value=mock_rate_limiter):
             with patch.object(clob_source, "_get_client", return_value=mock_client):
-                result = await clob_source.fetch_order_book("123")
+                result = await clob_source.fetch_orderbook("123")
 
         assert result.timestamp == 1609459200
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_api_url_and_params(self, clob_source):
+    async def test_fetch_orderbook_api_url_and_params(self, clob_source):
         """Test correct API endpoint and parameters."""
         calls = []
 
@@ -862,7 +862,7 @@ class TestCLOBOrderBookFunctions:
             params = kwargs.get("params", {})
             calls.append({"url": url, "params": params})
             mock_response = MagicMock()
-            mock_response.json = MagicMock(return_value=create_order_book_response(bids=[], asks=[]))
+            mock_response.json = MagicMock(return_value=create_orderbook_response(bids=[], asks=[]))
             mock_response.status_code = 200
             mock_response.raise_for_status = MagicMock()
             return mock_response
@@ -876,7 +876,7 @@ class TestCLOBOrderBookFunctions:
 
         with patch.object(clob_source, "_get_clob_rate_limiter", return_value=mock_rate_limiter):
             with patch.object(clob_source, "_get_client", return_value=mock_client):
-                await clob_source.fetch_order_book("123")
+                await clob_source.fetch_orderbook("123")
 
         assert len(calls) == 1
         assert calls[0]["url"] == f"{CLOB_BASE}/book"
@@ -884,7 +884,7 @@ class TestCLOBOrderBookFunctions:
         mock_rate_limiter.acquire.assert_called()
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_http_error(self, clob_source):
+    async def test_fetch_orderbook_http_error(self, clob_source):
         """Test HTTP errors propagate correctly."""
         mock_rate_limiter = AsyncMock()
         mock_rate_limiter.acquire = AsyncMock()
@@ -901,10 +901,10 @@ class TestCLOBOrderBookFunctions:
         with patch.object(clob_source, "_get_clob_rate_limiter", return_value=mock_rate_limiter):
             with patch.object(clob_source, "_get_client", return_value=mock_client):
                 with pytest.raises(httpx.HTTPStatusError):
-                    await clob_source.fetch_order_book("123")
+                    await clob_source.fetch_orderbook("123")
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_rate_limit_error(self, clob_source):
+    async def test_fetch_orderbook_rate_limit_error(self, clob_source):
         """Test 429 responses raise RateLimitError."""
         mock_rate_limiter = AsyncMock()
         mock_rate_limiter.acquire = AsyncMock()
@@ -918,15 +918,15 @@ class TestCLOBOrderBookFunctions:
         with patch.object(clob_source, "_get_clob_rate_limiter", return_value=mock_rate_limiter):
             with patch.object(clob_source, "_get_client", return_value=mock_client):
                 with pytest.raises(RateLimitError):
-                    await clob_source.fetch_order_book("123")
+                    await clob_source.fetch_orderbook("123")
 
-    # Tests for fetch_order_books_batch()
+    # Tests for fetch_orderbooks_batch()
 
     @pytest.mark.anyio
-    async def test_fetch_order_books_batch_success(self, clob_source):
+    async def test_fetch_orderbooks_batch_success(self, clob_source):
         """Test successfully fetching multiple order books."""
         # Create mock order books
-        mock_order_book_1 = OrderBook(
+        mock_orderbook_1 = OrderBook(
             token_id="token1",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.60, size=100)],
@@ -936,7 +936,7 @@ class TestCLOBOrderBookFunctions:
             mid_price=0.605,
             spread=0.01,
         )
-        mock_order_book_2 = OrderBook(
+        mock_orderbook_2 = OrderBook(
             token_id="token2",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.50, size=150)],
@@ -946,7 +946,7 @@ class TestCLOBOrderBookFunctions:
             mid_price=0.505,
             spread=0.01,
         )
-        mock_order_book_3 = OrderBook(
+        mock_orderbook_3 = OrderBook(
             token_id="token3",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.70, size=90)],
@@ -957,16 +957,16 @@ class TestCLOBOrderBookFunctions:
             spread=0.01,
         )
 
-        async def mock_fetch_order_book(token_id):
+        async def mock_fetch_orderbook(token_id):
             if token_id == "token1":
-                return mock_order_book_1
+                return mock_orderbook_1
             elif token_id == "token2":
-                return mock_order_book_2
+                return mock_orderbook_2
             elif token_id == "token3":
-                return mock_order_book_3
+                return mock_orderbook_3
 
-        with patch.object(clob_source, "fetch_order_book", side_effect=mock_fetch_order_book):
-            result = await clob_source.fetch_order_books_batch(["token1", "token2", "token3"])
+        with patch.object(clob_source, "fetch_orderbook", side_effect=mock_fetch_orderbook):
+            result = await clob_source.fetch_orderbooks_batch(["token1", "token2", "token3"])
 
         assert len(result) == 3
         assert all(isinstance(ob, OrderBook) for ob in result)
@@ -975,9 +975,9 @@ class TestCLOBOrderBookFunctions:
         assert result[2].token_id == "token3"
 
     @pytest.mark.anyio
-    async def test_fetch_order_books_batch_partial_failure(self, clob_source):
+    async def test_fetch_orderbooks_batch_partial_failure(self, clob_source):
         """Test continues processing when one token fails."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="token1",
             timestamp=1609459200,
             bids=[],
@@ -991,39 +991,39 @@ class TestCLOBOrderBookFunctions:
         async def mock_fetch_with_failure(token_id):
             if token_id == "token2":
                 raise Exception("API Error")
-            return mock_order_book
+            return mock_orderbook
 
-        with patch.object(clob_source, "fetch_order_book", side_effect=mock_fetch_with_failure):
-            result = await clob_source.fetch_order_books_batch(["token1", "token2", "token3"])
+        with patch.object(clob_source, "fetch_orderbook", side_effect=mock_fetch_with_failure):
+            result = await clob_source.fetch_orderbooks_batch(["token1", "token2", "token3"])
 
         # Should have 2 results (token1 and token3), skipping failed token2
         assert len(result) == 2
 
     @pytest.mark.anyio
-    async def test_fetch_order_books_batch_all_failures(self, clob_source):
+    async def test_fetch_orderbooks_batch_all_failures(self, clob_source):
         """Test returns empty list when all fetches fail."""
 
         async def mock_fetch_always_fails(token_id):
             raise Exception("API Error")
 
-        with patch.object(clob_source, "fetch_order_book", side_effect=mock_fetch_always_fails):
-            result = await clob_source.fetch_order_books_batch(["token1", "token2", "token3"])
+        with patch.object(clob_source, "fetch_orderbook", side_effect=mock_fetch_always_fails):
+            result = await clob_source.fetch_orderbooks_batch(["token1", "token2", "token3"])
 
         assert result == []
 
     @pytest.mark.anyio
-    async def test_fetch_order_books_batch_empty_input(self, clob_source):
+    async def test_fetch_orderbooks_batch_empty_input(self, clob_source):
         """Test handle empty token_ids list."""
-        with patch.object(clob_source, "fetch_order_book") as mock_fetch:
-            result = await clob_source.fetch_order_books_batch([])
+        with patch.object(clob_source, "fetch_orderbook") as mock_fetch:
+            result = await clob_source.fetch_orderbooks_batch([])
 
         assert result == []
         mock_fetch.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_fetch_order_books_batch_single_token(self, clob_source):
+    async def test_fetch_orderbooks_batch_single_token(self, clob_source):
         """Test works correctly with single token."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="token1",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.60, size=100)],
@@ -1035,16 +1035,16 @@ class TestCLOBOrderBookFunctions:
         )
 
         async def mock_fetch(token_id):
-            return mock_order_book
+            return mock_orderbook
 
-        with patch.object(clob_source, "fetch_order_book", side_effect=mock_fetch):
-            result = await clob_source.fetch_order_books_batch(["token1"])
+        with patch.object(clob_source, "fetch_orderbook", side_effect=mock_fetch):
+            result = await clob_source.fetch_orderbooks_batch(["token1"])
 
         assert len(result) == 1
         assert result[0].token_id == "token1"
 
     @pytest.mark.anyio
-    async def test_fetch_order_books_batch_error_logging(self, clob_source):
+    async def test_fetch_orderbooks_batch_error_logging(self, clob_source):
         """Test verify error logging contains helpful information."""
 
         async def mock_fetch_with_error(token_id):
@@ -1062,20 +1062,20 @@ class TestCLOBOrderBookFunctions:
             )
 
         with patch("polymorph.sources.clob.logger") as mock_logger:
-            with patch.object(clob_source, "fetch_order_book", side_effect=mock_fetch_with_error):
-                await clob_source.fetch_order_books_batch(["token1", "token2", "token3"])
+            with patch.object(clob_source, "fetch_orderbook", side_effect=mock_fetch_with_error):
+                await clob_source.fetch_orderbooks_batch(["token1", "token2", "token3"])
 
             # Verify logger.error was called for the failed token
             mock_logger.error.assert_called_once()
             error_call = mock_logger.error.call_args[0][0]
             assert "token2" in error_call
 
-    # Tests for fetch_order_book_to_dataframe()
+    # Tests for fetch_orderbook_to_dataframe()
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_to_dataframe_basic(self, clob_source):
+    async def test_fetch_orderbook_to_dataframe_basic(self, clob_source):
         """Test converting order book to DataFrame with correct structure."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[
@@ -1093,8 +1093,8 @@ class TestCLOBOrderBookFunctions:
             spread=0.01,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
-            df = await clob_source.fetch_order_book_to_dataframe("123")
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
+            df = await clob_source.fetch_orderbook_to_dataframe("123")
 
         assert isinstance(df, pl.DataFrame)
         assert df.height == 5  # 3 bids + 2 asks
@@ -1107,9 +1107,9 @@ class TestCLOBOrderBookFunctions:
         assert (df["timestamp"] == 1609459200).all()
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_to_dataframe_column_types(self, clob_source):
+    async def test_fetch_orderbook_to_dataframe_column_types(self, clob_source):
         """Test DataFrame has correct column types."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.60, size=100)],
@@ -1120,8 +1120,8 @@ class TestCLOBOrderBookFunctions:
             spread=0.01,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
-            df = await clob_source.fetch_order_book_to_dataframe("123")
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
+            df = await clob_source.fetch_orderbook_to_dataframe("123")
 
         assert df["token_id"].dtype == pl.Utf8
         assert df["timestamp"].dtype == pl.Int64
@@ -1130,9 +1130,9 @@ class TestCLOBOrderBookFunctions:
         assert df["size"].dtype == pl.Float64
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_to_dataframe_empty_order_book(self, clob_source):
+    async def test_fetch_orderbook_to_dataframe_empty_orderbook(self, clob_source):
         """Test handling empty order book (no bids or asks)."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[],
@@ -1143,8 +1143,8 @@ class TestCLOBOrderBookFunctions:
             spread=None,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
-            df = await clob_source.fetch_order_book_to_dataframe("123")
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
+            df = await clob_source.fetch_orderbook_to_dataframe("123")
 
         assert isinstance(df, pl.DataFrame)
         assert df.height == 0
@@ -1152,9 +1152,9 @@ class TestCLOBOrderBookFunctions:
         assert set(df.columns) == {"token_id", "timestamp", "side", "price", "size"}
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_to_dataframe_bids_only(self, clob_source):
+    async def test_fetch_orderbook_to_dataframe_bids_only(self, clob_source):
         """Test handling order book with only bids."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[
@@ -1171,17 +1171,17 @@ class TestCLOBOrderBookFunctions:
             spread=None,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
-            df = await clob_source.fetch_order_book_to_dataframe("123")
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
+            df = await clob_source.fetch_orderbook_to_dataframe("123")
 
         assert df.height == 5
         assert (df["side"] == "bid").all()
         assert df.filter(pl.col("side") == "ask").height == 0
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_to_dataframe_asks_only(self, clob_source):
+    async def test_fetch_orderbook_to_dataframe_asks_only(self, clob_source):
         """Test handling order book with only asks."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[],
@@ -1197,17 +1197,17 @@ class TestCLOBOrderBookFunctions:
             spread=None,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
-            df = await clob_source.fetch_order_book_to_dataframe("123")
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
+            df = await clob_source.fetch_orderbook_to_dataframe("123")
 
         assert df.height == 4
         assert (df["side"] == "ask").all()
         assert df.filter(pl.col("side") == "bid").height == 0
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_to_dataframe_order_preserved(self, clob_source):
+    async def test_fetch_orderbook_to_dataframe_order_preserved(self, clob_source):
         """Test bids appear before asks in DataFrame."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[
@@ -1225,8 +1225,8 @@ class TestCLOBOrderBookFunctions:
             spread=0.01,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
-            df = await clob_source.fetch_order_book_to_dataframe("123")
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
+            df = await clob_source.fetch_orderbook_to_dataframe("123")
 
         # First 2 rows should be bids
         assert (df.head(2)["side"] == "bid").all()
@@ -1240,9 +1240,9 @@ class TestCLOBOrderBookFunctions:
         assert ask_prices == [0.61, 0.62, 0.63]
 
     @pytest.mark.anyio
-    async def test_fetch_order_book_to_dataframe_values_match(self, clob_source):
+    async def test_fetch_orderbook_to_dataframe_values_match(self, clob_source):
         """Test all values correctly transferred from OrderBook."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="test_token",
             timestamp=1234567890,
             bids=[OrderBookLevel(price=0.45, size=250)],
@@ -1253,8 +1253,8 @@ class TestCLOBOrderBookFunctions:
             spread=0.10,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
-            df = await clob_source.fetch_order_book_to_dataframe("test_token")
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
+            df = await clob_source.fetch_orderbook_to_dataframe("test_token")
 
         # Check bid row
         bid_row = df.filter(pl.col("side") == "bid").row(0, named=True)
@@ -1274,7 +1274,7 @@ class TestCLOBOrderBookFunctions:
     @pytest.mark.anyio
     async def test_fetch_spread_basic(self, clob_source):
         """Test returns correct spread dictionary."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.59, size=100)],
@@ -1285,7 +1285,7 @@ class TestCLOBOrderBookFunctions:
             spread=0.02,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
             result = await clob_source.fetch_spread("123")
 
         assert isinstance(result, dict)
@@ -1299,7 +1299,7 @@ class TestCLOBOrderBookFunctions:
     @pytest.mark.anyio
     async def test_fetch_spread_no_bids(self, clob_source):
         """Test handling missing bids."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[],
@@ -1310,7 +1310,7 @@ class TestCLOBOrderBookFunctions:
             spread=None,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
             result = await clob_source.fetch_spread("123")
 
         assert result["bid"] is None
@@ -1321,7 +1321,7 @@ class TestCLOBOrderBookFunctions:
     @pytest.mark.anyio
     async def test_fetch_spread_no_asks(self, clob_source):
         """Test handling missing asks."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.40, size=100)],
@@ -1332,7 +1332,7 @@ class TestCLOBOrderBookFunctions:
             spread=None,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
             result = await clob_source.fetch_spread("123")
 
         assert result["bid"] == 0.40
@@ -1343,7 +1343,7 @@ class TestCLOBOrderBookFunctions:
     @pytest.mark.anyio
     async def test_fetch_spread_empty_book(self, clob_source):
         """Test handling completely empty order book."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[],
@@ -1354,7 +1354,7 @@ class TestCLOBOrderBookFunctions:
             spread=None,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
             result = await clob_source.fetch_spread("123")
 
         assert result["bid"] is None
@@ -1367,7 +1367,7 @@ class TestCLOBOrderBookFunctions:
     @pytest.mark.anyio
     async def test_fetch_spread_dictionary_keys(self, clob_source):
         """Test verifying all expected keys present."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.60, size=100)],
@@ -1378,7 +1378,7 @@ class TestCLOBOrderBookFunctions:
             spread=0.01,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
             result = await clob_source.fetch_spread("123")
 
         assert set(result.keys()) == {"token_id", "bid", "ask", "mid", "spread", "timestamp"}
@@ -1387,7 +1387,7 @@ class TestCLOBOrderBookFunctions:
     @pytest.mark.anyio
     async def test_fetch_spread_value_types(self, clob_source):
         """Test verify value types are correct."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.60, size=100)],
@@ -1398,7 +1398,7 @@ class TestCLOBOrderBookFunctions:
             spread=0.01,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
             result = await clob_source.fetch_spread("123")
 
         assert isinstance(result["token_id"], str)
@@ -1411,7 +1411,7 @@ class TestCLOBOrderBookFunctions:
     @pytest.mark.anyio
     async def test_fetch_spread_narrow_spread(self, clob_source):
         """Test handling very small spreads (precision)."""
-        mock_order_book = OrderBook(
+        mock_orderbook = OrderBook(
             token_id="123",
             timestamp=1609459200,
             bids=[OrderBookLevel(price=0.500000, size=100)],
@@ -1422,7 +1422,7 @@ class TestCLOBOrderBookFunctions:
             spread=0.000001,
         )
 
-        with patch.object(clob_source, "fetch_order_book", return_value=mock_order_book):
+        with patch.object(clob_source, "fetch_orderbook", return_value=mock_orderbook):
             result = await clob_source.fetch_spread("123")
 
         assert result["spread"] == 0.000001
