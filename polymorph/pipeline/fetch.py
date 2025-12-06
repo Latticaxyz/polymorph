@@ -30,6 +30,9 @@ class FetchStage(PipelineStage[None, FetchResult]):
         include_gamma: bool = True,
         include_prices: bool = True,
         include_trades: bool = True,
+        include_orderbooks: bool = False,
+        include_spreads: bool = False,
+        resolved_only: bool = False,
         max_concurrency: int | None = None,
     ):
         super().__init__(context)
@@ -37,6 +40,9 @@ class FetchStage(PipelineStage[None, FetchResult]):
         self.include_gamma = include_gamma
         self.include_prices = include_prices
         self.include_trades = include_trades
+        self.include_orderbooks = include_orderbooks
+        self.include_spreads = include_spreads
+        self.resolved_only = resolved_only
         self.max_concurrency = max_concurrency or context.max_concurrency
 
         self.storage = ParquetStorage(context.data_dir)
@@ -58,7 +64,8 @@ class FetchStage(PipelineStage[None, FetchResult]):
         logger.info(
             f"Starting fetch stage: {self.n_months} months "
             f"(gamma={self.include_gamma}, prices={self.include_prices}, "
-            f"trades={self.include_trades})"
+            f"trades={self.include_trades}, order_books={self.include_orderbooks}, "
+            f"spreads={self.include_spreads}, resolved_only={self.resolved_only})"
         )
 
         stamp = self._run_timestamp_str()
@@ -86,7 +93,10 @@ class FetchStage(PipelineStage[None, FetchResult]):
 
                 try:
                     async with self.gamma_source:
-                        market_df = await self.gamma_source.fetch()
+                        if self.resolved_only:
+                            market_df = await self.gamma_source.fetch_resolved_markets()
+                        else:
+                            market_df = await self.gamma_source.fetch()
 
                     if market_df.height > 0:
                         markets_path = Path("raw/gamma") / f"{stamp}_markets.parquet"
@@ -156,6 +166,95 @@ class FetchStage(PipelineStage[None, FetchResult]):
             elif self.include_prices and not token_ids:
                 progress.log("[yellow]•[/yellow] No token IDs available; skipping prices")
 
+            if self.include_orderbooks and token_ids:
+                task = progress.add_task(f"Order books ({len(token_ids)} tokens)", total=len(token_ids))
+                progress.log("[cyan]Starting order book snapshots[/cyan]")
+
+                sem = asyncio.Semaphore(self.max_concurrency)
+                orderbooks_out: list[pl.DataFrame] = []
+
+                async def fetch_token_orderbook(token_id: str) -> None:
+                    subtask = progress.add_task(f"[cyan]{token_id}", total=None)
+                    try:
+                        async with sem:
+                            async with self.clob_source:
+                                df = await self.clob_source.fetch_orderbook_to_dataframe(token_id)
+
+                            if df.height > 0:
+                                orderbooks_out.append(df)
+                                progress.log(f"[green]✓[/green] {token_id}: {df.height} levels")
+                            else:
+                                progress.log(f"[yellow]•[/yellow] {token_id}: empty order book")
+                    except Exception as e:
+                        logger.error(f"Order book fetch failed for {token_id}: {e}", exc_info=True)
+                        progress.log(f"[red]✗[/red] {token_id}: {e!r}")
+
+                    finally:
+                        progress.update(subtask, visible=False)
+                        progress.advance(task)
+
+                await asyncio.gather(*[fetch_token_orderbook(t) for t in token_ids])
+
+                if orderbooks_out:
+                    combined = pl.concat(orderbooks_out, how="vertical")
+                    orderbooks_path = Path("raw/clob") / f"{stamp}_orderbooks.parquet"
+                    self.storage.write(combined, orderbooks_path)
+                    result.orderbooks_path = self.storage._resolve_path(orderbooks_path)
+                    result.orderbook_levels = combined.height
+                    progress.log(f"[green]✓[/green] Order books: {result.orderbook_levels} levels")
+
+                progress.update(task, visible=False)
+
+            elif self.include_orderbooks and not token_ids:
+                progress.log("[yellow]•[/yellow] No token IDs available; skipping order books")
+
+            if self.include_spreads and token_ids:
+                task = progress.add_task(f"Spreads ({len(token_ids)} tokens)", total=len(token_ids))
+                progress.log("[cyan]Starting spread data fetch[/cyan]")
+
+                sem = asyncio.Semaphore(self.max_concurrency)
+                spreads_out: list[dict[str, str | float | int | None]] = []
+
+                async def fetch_tokens_spread(token_id: str) -> None:
+                    subtask = progress.add_task(f"[cyan]{token_id}", total=None)
+                    try:
+                        async with sem:
+                            async with self.clob_source:
+                                spread_data = await self.clob_source.fetch_spread(token_id)
+                        spreads_out.append(spread_data)
+                        bid = spread_data.get("bid")
+                        ask = spread_data.get("ask")
+                        spread = spread_data.get("spread")
+                        progress.log(
+                            f"[green]✓[/green] {token_id}: "
+                            f"bid={bid:.4f if isinstance(bid, (int, float)) else 'N/A'}, "
+                            f"ask={ask:.4f if isinstance(ask, (int, float)) else 'N/A'}, "
+                            f"spread={spread:.4f if isinstance(spread, (int, float)) else 'N/A'}"
+                        )
+
+                    except Exception as e:
+                        logger.error(f"Spread fetch failed for {token_id}: {e}", exc_info=True)
+                        progress.log(f"[red]✗[/red] {token_id}: {e!r}")
+
+                    finally:
+                        progress.update(subtask, visible=False)
+                        progress.advance(task)
+
+                await asyncio.gather(*[fetch_tokens_spread(t) for t in token_ids])
+
+                if spreads_out:
+                    spreads_df = pl.DataFrame(spreads_out)
+                    spreads_path = Path("raw/clob") / f"{stamp}_spreads.parquet"
+                    self.storage.write(spreads_df, spreads_path)
+                    result.spreads_path = self.storage._resolve_path(spreads_path)
+                    result.spreads_count = len(spreads_out)
+                    progress.log(f"[green]✓[/green] Spreads: {result.spreads_count} tokens")
+
+                progress.update(task, visible=False)
+
+            elif self.include_spreads and not token_ids:
+                progress.log("[yellow]•[/yellow] No token IDs available; skipping spreads")
+
             if self.include_trades:
                 progress.log("[cyan]Starting trades backfill[/cyan]")
                 try:
@@ -180,7 +279,8 @@ class FetchStage(PipelineStage[None, FetchResult]):
         logger.info(
             f"Fetch stage complete: {result.market_count} markets, "
             f"{result.token_count} tokens, {result.price_point_count} prices, "
-            f"{result.trade_count} trades"
+            f"{result.trade_count} trades, {result.orderbook_levels} order book levels, "
+            f"{result.spreads_count} spreads"
         )
 
         return result
