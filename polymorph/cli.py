@@ -125,6 +125,17 @@ def fetch(
     include_trades: bool = typer.Option(True, "--trades/--no-trades", help="Include recent trades via Data-API"),
     include_prices: bool = typer.Option(True, "--prices/--no-prices", help="Include prices-history for each token"),
     include_gamma: bool = typer.Option(True, "--gamma/--no-gamma", help="Fetch market metadata from Gamma"),
+    include_orderbooks: bool = typer.Option(
+        False, "--orderbooks/--no-orderbooks", help="Fetch real-time order book snapshots for all tokens"
+    ),
+    include_spreads: bool = typer.Option(
+        False,
+        "--spreads/--no-spreads",
+        help="Fetch bid-ask spread data for all tokens",
+    ),
+    resolved_only: bool = typer.Option(
+        False, "--resolved", help="Fetch only resolved/closed markets (when used with --gamma)"
+    ),
     max_concurrency: int | None = typer.Option(
         None,
         "--local-max-concurrency",
@@ -132,7 +143,10 @@ def fetch(
     ),
 ) -> None:
     console.log(
-        f"months={months}, out={out}, gamma={include_gamma}, " f"prices={include_prices}, trades={include_trades}"
+        f"months={months}, out={out}, gamma={include_gamma}, "
+        f"prices={include_prices}, trades={include_trades}, "
+        f"order_books={include_orderbooks}, spreads={include_spreads}, "
+        f"resolved_only={resolved_only}"
     )
 
     runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
@@ -145,6 +159,9 @@ def fetch(
         include_gamma=include_gamma,
         include_prices=include_prices,
         include_trades=include_trades,
+        include_orderbooks=include_orderbooks,
+        include_spreads=include_spreads,
+        resolved_only=resolved_only,
         max_concurrency=max_concurrency,
     )
     asyncio.run(stage.execute())
