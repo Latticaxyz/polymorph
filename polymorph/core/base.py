@@ -6,7 +6,7 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel
 
-from polymorph.config import DefaultSettings, RemoteSettings, Settings
+from polymorph.config import Config
 
 T = TypeVar("T")
 InputT = TypeVar("InputT")
@@ -19,21 +19,20 @@ class RuntimeConfig:
     max_concurrency: int | None = None
     data_dir: str | None = None
 
-    def merge_with(self, base: DefaultSettings | RemoteSettings) -> "RuntimeConfig":
+    def merge_with(self, base: Config) -> "RuntimeConfig":
         return RuntimeConfig(
             http_timeout=self.http_timeout if self.http_timeout is not None else base.http_timeout,
-            max_concurrency=self.max_concurrency if self.max_concurrency is not None else base.max_concurrency,
+            max_concurrency=(self.max_concurrency if self.max_concurrency is not None else base.max_concurrency),
             data_dir=self.data_dir if self.data_dir is not None else base.data_dir,
         )
 
 
 @dataclass
 class PipelineContext:
-    settings: Settings
+    config: Config
     run_timestamp: datetime
     data_dir: Path
     runtime_config: RuntimeConfig = field(default_factory=RuntimeConfig)
-    use_remote: bool = False
     metadata: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -42,8 +41,7 @@ class PipelineContext:
 
     @property
     def effective_config(self) -> RuntimeConfig:
-        base_config = self.settings.get_active_config(self.use_remote)
-        return self.runtime_config.merge_with(base_config)
+        return self.runtime_config.merge_with(self.config)
 
     @property
     def http_timeout(self) -> int:
@@ -57,7 +55,7 @@ class PipelineContext:
 class DataSource(ABC, Generic[T]):
     def __init__(self, context: PipelineContext):
         self.context = context
-        self.settings = context.settings
+        self.config = context.config
 
     @property
     @abstractmethod
@@ -74,7 +72,7 @@ class DataSource(ABC, Generic[T]):
 class PipelineStage(ABC, Generic[InputT, OutputT]):
     def __init__(self, context: PipelineContext):
         self.context = context
-        self.settings = context.settings
+        self.config = context.config
 
     @property
     @abstractmethod
