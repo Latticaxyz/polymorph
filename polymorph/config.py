@@ -1,34 +1,19 @@
 from pathlib import Path
 from typing import Tuple
 
-from pydantic import BaseModel
+from pydantic import Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 
-class DefaultSettings(BaseModel):
-    http_timeout: int = 30
-    max_concurrency: int = 8
-    data_dir: str = "data"
-
-
-class RemoteSettings(BaseModel):
-    http_timeout: int = 120
-    max_concurrency: int = 32
-    data_dir: str = "/data"
-    user: str | None = None
-    host: str | None = None
-    path: str | None = None
-    ssh_key: str | None = None
-
-
-class Settings(BaseSettings):
-    default: DefaultSettings = DefaultSettings()
-    remote: RemoteSettings = RemoteSettings()
-
-    subgraph_url: str | None = None
+class Config(BaseSettings):
+    http_timeout: int = Field(default=30, ge=1, le=300)
+    max_concurrency: int = Field(default=8, ge=1, le=64)
+    data_dir: str = Field(default="data")
 
     model_config = SettingsConfigDict(
         toml_file="polymorph.toml",
+        env_prefix="POLYMORPH_",
+        case_sensitive=False,
         extra="ignore",
     )
 
@@ -41,16 +26,18 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> Tuple[PydanticBaseSettingsSource, ...]:
-        _ = (env_settings, dotenv_settings, file_secret_settings)
-
+        """
+        Priority order:
+        1. init_settings (passed to constructor)
+        2. env_settings (environment variables)
+        3. TomlConfigSettingsSource (polymorph.toml file)
+        """
+        _ = (dotenv_settings, file_secret_settings)
         return (
             init_settings,
+            env_settings,
             TomlConfigSettingsSource(settings_cls),
         )
-
-    def get_active_config(self, use_remote: bool = False) -> DefaultSettings | RemoteSettings:
-        """Get the active configuration based on context."""
-        return self.remote if use_remote else self.default
 
 
 def _ensure_config_exists() -> None:
@@ -64,6 +51,10 @@ data_dir = "data"
         config_path.write_text(default_config)
 
 
-_ensure_config_exists()
+def get_config() -> Config:
+    _ensure_config_exists()
+    return Config()
 
-settings = Settings()
+
+_ensure_config_exists()
+config = Config()
