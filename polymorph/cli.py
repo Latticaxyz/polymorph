@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,10 +11,9 @@ from rich.console import Console
 from rich.table import Table
 
 from polymorph import __version__
-from polymorph.config import settings
+from polymorph.config import config
 from polymorph.core.base import PipelineContext, RuntimeConfig
 from polymorph.pipeline import FetchStage, ProcessStage
-from polymorph.remote import deploy_and_run
 from polymorph.sims import MonteCarloSimulator, ParameterSearcher
 from polymorph.utils.logging import setup as setup_logging
 
@@ -31,24 +29,22 @@ app = typer.Typer(
 console = Console()
 
 # Module-level defaults to avoid B008 flake8 errors
-_DEFAULT_DATA_DIR = Path(settings.default.data_dir)
-_DEFAULT_HTTP_TIMEOUT = settings.default.http_timeout
-_DEFAULT_MAX_CONCURRENCY = settings.default.max_concurrency
-_DEFAULT_RAW_DIR = Path(settings.default.data_dir) / "raw"
-_DEFAULT_PROCESSED_DIR = Path(settings.default.data_dir) / "processed"
+_DEFAULT_DATA_DIR = Path(config.data_dir)
+_DEFAULT_HTTP_TIMEOUT = config.http_timeout
+_DEFAULT_MAX_CONCURRENCY = config.max_concurrency
+_DEFAULT_RAW_DIR = Path(config.data_dir) / "raw"
+_DEFAULT_PROCESSED_DIR = Path(config.data_dir) / "processed"
 
 
 def create_context(
     data_dir: Path,
     runtime_config: RuntimeConfig | None = None,
-    use_remote: bool = False,
 ) -> PipelineContext:
     return PipelineContext(
-        settings=settings,
+        config=config,
         run_timestamp=datetime.now(timezone.utc),
         data_dir=data_dir,
         runtime_config=runtime_config or RuntimeConfig(),
-        use_remote=use_remote,
     )
 
 
@@ -77,19 +73,7 @@ def init(
         "--max-concurrency",
         help="Max concurrent HTTP requests (overrides TOML config for this command)",
     ),
-    remote: bool = typer.Option(
-        False,
-        "--remote",
-        "-r",
-        help="Execute command on remote server (overrides TOML config for this command)",
-    ),
 ) -> None:
-    if remote:
-        args = sys.argv[1:]
-        cleaned_args = [arg for arg in args if arg not in ["--remote", "-r"]]
-        exit_code = deploy_and_run(cleaned_args)
-        sys.exit(exit_code)
-
     level = logging.DEBUG if verbose else logging.INFO
     setup_logging(level=level)
 
@@ -111,9 +95,9 @@ def version() -> None:
     table.add_column("Field")
     table.add_column("Value")
     table.add_row("Version", __version__)
-    table.add_row("Data dir", settings.default.data_dir)
-    table.add_row("HTTP timeout", str(settings.default.http_timeout))
-    table.add_row("Max concurrency", str(settings.default.max_concurrency))
+    table.add_row("Data dir", config.data_dir)
+    table.add_row("HTTP timeout", str(config.http_timeout))
+    table.add_row("Max concurrency", str(config.max_concurrency))
     console.print(table)
 
 
@@ -185,7 +169,7 @@ def process(
     console.log(f"in={in_}, out={out}")
     runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
 
-    context = create_context(Path(settings.default.data_dir), runtime_config=runtime_config)
+    context = create_context(Path(config.data_dir), runtime_config=runtime_config)
     stage = ProcessStage(context=context, raw_dir=in_, processed_dir=out)
     asyncio.run(stage.execute())
     console.print("Processing complete.")
