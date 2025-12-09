@@ -6,8 +6,8 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 
 class Config(BaseSettings):
-    http_timeout: int = Field(default=30, ge=1, le=300)
-    max_concurrency: int = Field(default=8, ge=1, le=64)
+    http_timeout: int = Field(default=30, ge=1)
+    max_concurrency: int = Field(default=8, ge=1)
     data_dir: str = Field(default="data")
 
     model_config = SettingsConfigDict(
