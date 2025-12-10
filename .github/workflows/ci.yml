@@ -76,7 +76,7 @@ jobs:
       - name: Run test suite
         run: |
           source .venv/bin/activate
-          pytest -m
+          pytest
 
   build:
     name: Build wheel & sdist
