@@ -98,17 +98,9 @@ repos:
   - repo: local
     hooks:
       # Unit tests
-      - id: pytest-unit
-        name: pytest (unit tests)
-        entry: uv run pytest -m "not integration"
-        language: system
-        pass_filenames: false
-        stages: [pre-push]
-
-      # Integration tests
-      - id: pytest-integration
-        name: pytest (integration tests)
-        entry: uv run pytest --run-integration -m integration
+      - id: pytest
+        name: pytest
+        entry: uv run pytest
         language: system
         pass_filenames: false
         stages: [pre-push]
