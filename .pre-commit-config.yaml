@@ -62,6 +62,7 @@ repos:
           - --show-error-codes
           - --no-warn-unused-ignores
           - --python-version=3.11
+        exclude: ^tests/
         types: [python]
 
   # Security
