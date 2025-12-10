@@ -104,7 +104,7 @@ skip_glob = ["**/.venv/**", "**/build/**", "**/dist/**"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-exclude = ['\.venv', "build", "dist", '\.eggs', "monitor"]
+exclude = ['\.venv', "build", "dist", '\.eggs', "test", "monitor"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
