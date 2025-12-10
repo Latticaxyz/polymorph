@@ -9,6 +9,9 @@ wheels/
 # pytest
 .pytest_cache
 
+# hypothesis
+.hypothesis/
+
 # coverage
 .coverage
 .coverage.*
