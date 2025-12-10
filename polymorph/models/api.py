@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -7,7 +12,7 @@ class Market(BaseModel):
     description: str | None = None
     market_slug: str | None = Field(default=None, alias="marketSlug")
     condition_id: str | None = Field(default=None, alias="conditionId")
-    clob_token_ids: list[str] | None = Field(default=None, alias="clobTokenIds")
+    clob_token_ids: list[str] | str | None = Field(default=None, alias="clobTokenIds")
     outcomes: list[str] | None = None
     active: bool | None = None
     closed: bool | None = None
@@ -17,7 +22,7 @@ class Market(BaseModel):
     resolved: bool | None = None
     resolution_date: str | None = Field(default=None, alias="resolutionDate")
     resolution_outcome: str | None = Field(default=None, alias="resolutionOutcome")
-    tags: list[str] | None = None
+    tags: list[str] = Field(default_factory=list)
     category: str | None = None
     rewards: dict[str, float] | None = None
 
@@ -25,14 +30,12 @@ class Market(BaseModel):
 
     @field_validator("clob_token_ids", mode="before")
     @classmethod
-    def normalize_token_ids(_cls, v: object) -> list[str]:
+    def normalize_token_ids(cls, v: list[str] | str | None) -> list[str]:
         if v is None:
             return []
         if isinstance(v, list):
             return [str(x) for x in v if x is not None]
         if isinstance(v, str):
-            import json
-
             s = v.strip()
             if s.startswith("[") and s.endswith("]"):
                 try:
@@ -56,8 +59,8 @@ class Token(BaseModel):
 
 
 class PricePoint(BaseModel):
-    t: int  # timestamp
-    p: float  # price
+    t: int
+    p: float
     token_id: str | None = Field(default=None, alias="tokenId")
 
     model_config = {"populate_by_name": True}
@@ -81,16 +84,12 @@ class Trade(BaseModel):
     model_config = {"populate_by_name": True, "extra": "allow"}
 
     @model_validator(mode="after")
-    def parse_timestamp_from_created_at(self) -> "Trade":
-        """Parse timestamp from created_at if timestamp is not provided."""
+    def parse_timestamp_from_created_at(self) -> Trade:
         if self.timestamp is None and self.created_at is not None:
             try:
-                from datetime import datetime
-
                 dt = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
                 self.timestamp = int(dt.timestamp())
             except (ValueError, OSError):
-                # Invalid datetime format or out of range - keep as None
                 pass
         return self
 
@@ -144,7 +143,7 @@ class OrderBook(BaseModel):
 class MarketResolution(BaseModel):
     market_id: str
     condition_id: str | None = None
-    outcome: str  # YES, NO, INVALID
+    outcome: str
     resolution_timestamp: int | None = None
     resolution_date: str | None = None
     winning_outcome_price: float | None = None
