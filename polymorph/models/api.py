@@ -1,22 +1,22 @@
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Market(BaseModel):
     id: str | None = None
     question: str | None = None
     description: str | None = None
-    market_slug: str | None = Field(None, alias="marketSlug")
-    condition_id: str | None = Field(None, alias="conditionId")
-    clob_token_ids: list[str] | None = Field(None, alias="clobTokenIds")
+    market_slug: str | None = Field(default=None, alias="marketSlug")
+    condition_id: str | None = Field(default=None, alias="conditionId")
+    clob_token_ids: list[str] | None = Field(default=None, alias="clobTokenIds")
     outcomes: list[str] | None = None
     active: bool | None = None
     closed: bool | None = None
     archived: bool | None = None
-    created_at: str | None = Field(None, alias="createdAt")
-    end_date: str | None = Field(None, alias="endDate")
+    created_at: str | None = Field(default=None, alias="createdAt")
+    end_date: str | None = Field(default=None, alias="endDate")
     resolved: bool | None = None
-    resolution_date: str | None = Field(None, alias="resolutionDate")
-    resolution_outcome: str | None = Field(None, alias="resolutionOutcome")
+    resolution_date: str | None = Field(default=None, alias="resolutionDate")
+    resolution_outcome: str | None = Field(default=None, alias="resolutionOutcome")
     tags: list[str] | None = None
     category: str | None = None
     rewards: dict[str, float] | None = None
@@ -50,7 +50,7 @@ class Market(BaseModel):
 class Token(BaseModel):
     token_id: str = Field(..., alias="tokenId")
     outcome: str | None = None
-    market_id: str | None = Field(None, alias="marketId")
+    market_id: str | None = Field(default=None, alias="marketId")
 
     model_config = {"populate_by_name": True}
 
@@ -58,7 +58,7 @@ class Token(BaseModel):
 class PricePoint(BaseModel):
     t: int  # timestamp
     p: float  # price
-    token_id: str | None = Field(None, alias="tokenId")
+    token_id: str | None = Field(default=None, alias="tokenId")
 
     model_config = {"populate_by_name": True}
 
@@ -66,38 +66,33 @@ class PricePoint(BaseModel):
 class Trade(BaseModel):
     id: str | None = None
     market: str | None = None
-    asset_id: str | None = Field(None, alias="assetId")
-    condition_id: str | None = Field(None, alias="conditionId")
+    asset_id: str | None = Field(default=None, alias="assetId")
+    condition_id: str | None = Field(default=None, alias="conditionId")
     side: str | None = None
     size: float | None = None
     price: float | None = None
-    fee_rate_bps: int | None = Field(None, alias="feeRateBps")
+    fee_rate_bps: int | None = Field(default=None, alias="feeRateBps")
     status: str | None = None
-    created_at: str | None = Field(None, alias="createdAt")
+    created_at: str | None = Field(default=None, alias="createdAt")
     timestamp: int | None = None
-    maker_address: str | None = Field(None, alias="makerAddress")
-    match_time: str | None = Field(None, alias="matchTime")
+    maker_address: str | None = Field(default=None, alias="makerAddress")
+    match_time: str | None = Field(default=None, alias="matchTime")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 
-    @field_validator("timestamp", mode="before")
-    @classmethod
-    def parse_timestamp(_cls, v: object, info: ValidationInfo) -> int | None:
-        if v is not None and isinstance(v, int):
-            return v
-
-        # Try to get from created_at
-        created_at = info.data.get("created_at")
-        if created_at and isinstance(created_at, str):
+    @model_validator(mode="after")
+    def parse_timestamp_from_created_at(self) -> "Trade":
+        """Parse timestamp from created_at if timestamp is not provided."""
+        if self.timestamp is None and self.created_at is not None:
             try:
                 from datetime import datetime
 
-                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                return int(dt.timestamp())
+                dt = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
+                self.timestamp = int(dt.timestamp())
             except (ValueError, OSError):
-                # Invalid datetime format or out of range - return None
-                return None
-        return None
+                # Invalid datetime format or out of range - keep as None
+                pass
+        return self
 
 
 class OrderBookLevel(BaseModel):
