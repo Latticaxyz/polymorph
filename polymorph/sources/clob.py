@@ -181,7 +181,11 @@ class CLOB(DataSource[pl.DataFrame]):
                         and isinstance(price, (int, float, str))
                         and isinstance(size, (int, float, str))
                     ):
-                        bids.append(OrderBookLevel(price=float(price), size=float(size)))
+                        try:
+                            bids.append(OrderBookLevel(price=float(price), size=float(size)))
+                        except (ValueError, TypeError):
+                            # Skip malformed entries
+                            continue
 
         asks = []
         if isinstance(asks_data, list):
@@ -195,7 +199,11 @@ class CLOB(DataSource[pl.DataFrame]):
                         and isinstance(price, (int, float, str))
                         and isinstance(size, (int, float, str))
                     ):
-                        asks.append(OrderBookLevel(price=float(price), size=float(size)))
+                        try:
+                            asks.append(OrderBookLevel(price=float(price), size=float(size)))
+                        except (ValueError, TypeError):
+                            # Skip malformed entries
+                            continue
 
         # Sort bids descending, asks ascending
         bids = sorted(bids, key=lambda x: x.price, reverse=True)
@@ -325,14 +333,20 @@ class CLOB(DataSource[pl.DataFrame]):
                 logger.debug(f"No more trades at offset {offset}")
                 break
 
+            # Check if adding this batch would exceed max_trades
+            if len(rows) + len(batch) > self.max_trades:
+                # Only add trades up to the limit
+                remaining = self.max_trades - len(rows)
+                rows.extend(batch[:remaining])
+                logger.warning(f"Reached max trades limit: {self.max_trades}")
+                break
+
             rows.extend(batch)
             logger.debug(f"Fetched {len(batch)} trades (total: {len(rows)})")
 
             offset += limit
 
-            if len(batch) < limit or offset > self.max_trades:
-                if offset > self.max_trades:
-                    logger.warning(f"Reached max trades limit: {self.max_trades}")
+            if len(batch) < limit:
                 break
 
         if not rows:
@@ -340,13 +354,14 @@ class CLOB(DataSource[pl.DataFrame]):
 
         df = pl.DataFrame(rows)
 
-        # Parse timestamp from created_at if needed
         if "timestamp" not in df.columns and "created_at" in df.columns:
             df = df.with_columns(
-                pl.col("created_at")
-                .str.strptime(pl.Datetime, strict=False, format="%Y-%m-%dT%H:%M:%S%z")
-                .cast(pl.Int64)
-                .alias("timestamp")
+                (
+                    pl.col("created_at")
+                    .str.strptime(pl.Datetime, strict=False, format="%Y-%m-%dT%H:%M:%S%z")
+                    .cast(pl.Int64)
+                    // 1_000_000
+                ).alias("timestamp")
             )
 
         # Filter by timestamp if provided
