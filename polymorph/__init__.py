@@ -3,10 +3,10 @@ from types import ModuleType
 
 __version__ = "0.1.0"
 
-from . import io, pipeline, sims, sources, utils
+from . import pipeline, sources, utils
 
 # Eager load
-__all__ = ["__version__", "utils", "io", "sources", "sims", "pipeline"]
+__all__ = ["__version__", "utils", "sources", "pipeline"]
 
 
 # Lazy load
