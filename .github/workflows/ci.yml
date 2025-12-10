@@ -71,7 +71,7 @@ jobs:
           source .venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install .
-          python -m pip install black isort flake8 ruff mypy pytest build
+          python -m pip install black isort flake8 ruff mypy pytest pytest-asyncio build
 
       - name: Run test suite
         run: |
