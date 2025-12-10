@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 
 import httpx
@@ -10,14 +12,12 @@ from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# JSON type aliases for strict typing
-JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonValue = str | int | float | bool | None | list["JsonValue"] | list[str] | dict[str, "JsonValue"]
 JsonDict = dict[str, JsonValue]
 JsonList = list[JsonValue]
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
-# Gamma API enforces a max of 500 markets per request
 MAX_MARKETS_PER_REQUESTS = 500
 
 
@@ -94,39 +94,37 @@ class Gamma(DataSource[pl.DataFrame]):
         return [str(v)]
 
     @staticmethod
-    def _classify_market_type(row: dict[str, JsonValue]) -> str:
-        question = row.get("question", "")
-        tags = row.get("tags", None)
+    def _classify_market_type(row: JsonDict) -> str:
+        question_value = row.get("question", "")
+        tags_value = row.get("tags", None)
 
-        question_lower = question.lower() if isinstance(question, str) else ""
+        question_lower = question_value.lower() if isinstance(question_value, str) else ""
 
         tag_str = ""
-        if tags is not None:
-            if isinstance(tags, list):
-                tag_str = " ".join(str(t) for t in tags).lower()
-            elif isinstance(tags, str):
-                tag_str = tags.lower()
+        if tags_value is not None:
+            if isinstance(tags_value, list):
+                tag_str = " ".join(str(t) for t in tags_value).lower()
+            elif isinstance(tags_value, str):
+                tag_str = tags_value.lower()
 
         combined = f"{question_lower} {tag_str}"
 
-        # Election
-        if any(kw in combined for kw in ["election", "president", "senator", "governor", "vote", "win", "nominee"]):
+        if any(
+            kw in combined for kw in ["election", "president", "senator", "governor", "vote", "nominee", "electoral"]
+        ):
             return "election"
 
-        # Sports
+        if any(kw in combined for kw in ["by", "before", "after", "2024", "2025", "2026"]) and "?" in question_lower:
+            return "deadline"
+
         if any(
             kw in combined
             for kw in ["nfl", "nba", "mlb", "nhl", "soccer", "football", "basketball", "championship", "super bowl"]
         ):
             return "sports"
 
-        # Crypto
         if any(kw in combined for kw in ["bitcoin", "eth", "crypto", "btc", "coin", "token", "blockchain"]):
             return "crypto"
-
-        # Deadline
-        if any(kw in combined for kw in ["by", "before", "after", "2024", "2025", "2026"]) and "?" in question_lower:
-            return "deadline"
 
         return "other"
 
@@ -141,7 +139,7 @@ class Gamma(DataSource[pl.DataFrame]):
 
         url = f"{self.base_url}/markets"
         offset = 0
-        markets_data: list[JsonValue] = []
+        markets_data: list[JsonDict] = []
         page = 0
 
         while True:
@@ -168,22 +166,29 @@ class Gamma(DataSource[pl.DataFrame]):
             payload = await self._get(url, params=params)
 
             if isinstance(payload, list):
-                items = payload
+                items: list[JsonDict] = [obj for obj in payload if isinstance(obj, dict)]
             else:
                 data_value = payload.get("data")
                 markets_value = payload.get("markets")
-                items = (
-                    data_value
-                    if isinstance(data_value, list)
-                    else markets_value if isinstance(markets_value, list) else []
-                )
+                if isinstance(data_value, list):
+                    items = [obj for obj in data_value if isinstance(obj, dict)]
+                elif isinstance(markets_value, list):
+                    items = [obj for obj in markets_value if isinstance(obj, dict)]
+                else:
+                    items = []
 
             if not items:
                 logger.debug(f"No more items at page {page}")
                 break
 
+            if max_markets is not None and len(markets_data) + len(items) > max_markets:
+                remaining = max_markets - len(markets_data)
+                markets_data.extend(items[:remaining])
+                logger.info(f"Reached max_markets limit: {max_markets}")
+                break
+
             markets_data.extend(items)
-            logger.debug(f"Fetched page {page + 1}: {len(items)} markets " f"(total: {len(markets_data)})")
+            logger.debug(f"Fetched page {page + 1}: {len(items)} markets (total: {len(markets_data)})")
 
             if len(items) < batch_size:
                 logger.debug(f"Received {len(items)} < {batch_size}, assuming end of data")
@@ -197,21 +202,18 @@ class Gamma(DataSource[pl.DataFrame]):
         if not markets_data:
             return pl.DataFrame({"token_ids": pl.Series([], dtype=pl.List(pl.Utf8))})
 
-        df = pl.DataFrame(markets_data)
+        for market in markets_data:
+            if "clobTokenIds" in market:
+                market["token_ids"] = self._normalize_ids(market["clobTokenIds"])
+                del market["clobTokenIds"]
+            else:
+                market["token_ids"] = []
 
-        # Normalize token IDs
-        if "clobTokenIds" in df.columns:
-            df = df.with_columns(
-                pl.col("clobTokenIds")
-                .map_elements(self._normalize_ids, return_dtype=pl.List(pl.Utf8))
-                .alias("token_ids")
-            )
-        else:
-            df = df.with_columns(pl.lit([]).cast(pl.List(pl.Utf8)).alias("token_ids"))
+        df = pl.DataFrame(markets_data)
 
         if "question" in df.columns:
             if "tags" not in df.columns:
-                df = df.with_columns(pl.lit(None).alias("tags"))
+                df = df.with_columns(pl.lit([]).alias("tags"))
 
             df = df.with_columns(
                 pl.struct(["question", "tags"])
@@ -238,7 +240,7 @@ class Gamma(DataSource[pl.DataFrame]):
             await self._client.aclose()
             self._client = None
 
-    async def __aenter__(self) -> "Gamma":
+    async def __aenter__(self) -> Gamma:
         return self
 
     async def __aexit__(
