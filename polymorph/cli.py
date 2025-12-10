@@ -14,7 +14,6 @@ from polymorph import __version__
 from polymorph.config import config
 from polymorph.core.base import PipelineContext, RuntimeConfig
 from polymorph.pipeline import FetchStage, ProcessStage
-from polymorph.sims import MonteCarloSimulator, ParameterSearcher
 from polymorph.utils.logging import setup as setup_logging
 
 click.Context.formatter_class = click.HelpFormatter
@@ -190,14 +189,16 @@ def mc_run(
         help="Processed data directory",
     ),
 ) -> None:
-    simulator = MonteCarloSimulator(processed_dir=in_)
-    result = simulator.run(market_id, trials, horizon_days)
-    table = Table(title="Monte Carlo Result")
-    table.add_column("Metric")
-    table.add_column("Value")
-    for k, v in result.items():
-        table.add_row(k, f"{v:.6f}" if isinstance(v, float) else str(v))
-    console.print(table)
+    _ = (market_id, trials, horizon_days, in_)
+    pass
+    # simulator = MonteCarloSimulator(processed_dir=in_)
+    # result = simulator.run(market_id, trials, horizon_days)
+    # table = Table(title="Monte Carlo Result")
+    # table.add_column("Metric")
+    # table.add_column("Value")
+    # for k, v in result.items():
+    #     table.add_row(k, f"{v:.6f}" if isinstance(v, float) else str(v))
+    # console.print(table)
 
 
 @app.command(help="Hyperparameter searchig and tuning (Optima)")
@@ -210,8 +211,10 @@ def tune(
         help="Processed data directory",
     ),
 ) -> None:
-    searcher = ParameterSearcher(processed_dir=in_)
-    searcher.run(study, n_trials)
+    _ = (study, n_trials, in_)
+    pass
+    # searcher = ParameterSearcher(processed_dir=in_)
+    # searcher.run(study, n_trials)
 
 
 def main() -> None:
