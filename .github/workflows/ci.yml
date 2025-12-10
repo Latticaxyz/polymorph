@@ -73,10 +73,10 @@ jobs:
           python -m pip install .
           python -m pip install black isort flake8 ruff mypy pytest build
 
-      - name: Run unit tests
+      - name: Run test suite
         run: |
           source .venv/bin/activate
-          pytest -m "not integration"
+          pytest -m
 
   build:
     name: Build wheel & sdist
