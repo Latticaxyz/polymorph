@@ -100,7 +100,4 @@ jobs:
         run: uv build
 
       - name: Check package
-        run: |
-          uv venv
-          uv pip install twine
-          twine check dist/*
+        run: uvx twine check dist/*
