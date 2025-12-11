@@ -48,9 +48,7 @@ jobs:
         run: uv build
 
       - name: Check package
-        run: |
-          uv pip install twine
-          twine check dist/*
+        run: uvx twine check dist/*
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
