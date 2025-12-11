@@ -2,7 +2,7 @@
 
 [project]
 name = "lattica-polymorph"
-version = "0.1.1"
+version = "0.1.2"
 description = "Polymarket data scraper and pipeline"
 readme = "README.md"
 requires-python = ">=3.11"
