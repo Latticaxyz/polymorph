@@ -7,8 +7,6 @@ It provides command-line tools for market data ingestion, transformation, proces
 ## Installation
 
 ```bash
-pipx install lattica-polymorph
-# or
 pip install lattica-polymorph
 ```
 
