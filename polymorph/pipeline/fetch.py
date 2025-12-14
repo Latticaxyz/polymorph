@@ -1,23 +1,18 @@
 import asyncio
-from datetime import datetime
 from pathlib import Path
+from typing import Any, Coroutine, TypeVar
 
 import polars as pl
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from polymorph.core.base import PipelineContext, PipelineStage
-from polymorph.core.storage import ParquetStorage
 from polymorph.models.pipeline import FetchResult
 from polymorph.sources.clob import CLOB
 from polymorph.sources.gamma import Gamma
 from polymorph.utils.logging import get_logger
-from polymorph.utils.time import months_ago, utc
+from polymorph.utils.time import datetime_to_ms, months_ago_ms, utc
+
+T = TypeVar("T")
 
 logger = get_logger(__name__)
 
@@ -45,242 +40,148 @@ class FetchStage(PipelineStage[None, FetchResult]):
         self.resolved_only = resolved_only
         self.max_concurrency = max_concurrency or context.max_concurrency
 
-        self.storage = ParquetStorage(context.data_dir)
-
-        self.gamma_source = Gamma(context)
-        self.clob_source = CLOB(context)
+        self.storage = context.storage
+        self.gamma = Gamma(context)
+        self.clob = CLOB(context)
 
     @property
     def name(self) -> str:
         return "fetch"
 
-    def _ts(self, dt: datetime) -> int:
-        return int(dt.timestamp())
-
-    def _run_timestamp_str(self) -> str:
+    def _stamp(self) -> str:
         return self.context.run_timestamp.strftime("%Y%m%dT%H%M%SZ")
 
-    async def execute(self, _input_data: None = None) -> FetchResult:
-        logger.info(
-            f"Starting fetch stage: {self.n_months} months "
-            f"(gamma={self.include_gamma}, prices={self.include_prices}, "
-            f"trades={self.include_trades}, order_books={self.include_orderbooks}, "
-            f"spreads={self.include_spreads}, resolved_only={self.resolved_only})"
-        )
+    async def execute(self, _input: None = None) -> FetchResult:
+        start_ts = months_ago_ms(self.n_months)
+        end_ts = datetime_to_ms(utc())
+        stamp = self._stamp()
 
-        stamp = self._run_timestamp_str()
-        start = months_ago(self.n_months)
-        end = utc()
-        start_ts, end_ts = self._ts(start), self._ts(end)
+        result = FetchResult(run_timestamp=self.context.run_timestamp)
+        sem = asyncio.Semaphore(self.max_concurrency)
 
-        result = FetchResult(
-            run_timestamp=self.context.run_timestamp,
-        )
+        async def limited(coro: Coroutine[Any, Any, T]) -> T:
+            async with sem:
+                return await coro
 
         with Progress(
             SpinnerColumn(),
-            TextColumn("[bold]{task.description}"),
+            TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TimeElapsedColumn(),
-            transient=False,
         ) as progress:
-            market_df = pl.DataFrame()
+            task = progress.add_task("fetch", total=6)
+
+            markets_df = None
             token_ids: list[str] = []
 
             if self.include_gamma:
-                task = progress.add_task("Fetching markets (gamma)", total=None)
-                progress.log("[cyan]Starting gamma fetch[/cyan]")
+                progress.update(task, advance=1, description="gamma markets")
+                async with self.gamma:
+                    markets_df = await self.gamma.fetch_markets(resolved_only=self.resolved_only)
 
-                try:
-                    async with self.gamma_source:
-                        if self.resolved_only:
-                            market_df = await self.gamma_source.fetch_resolved_markets()
-                        else:
-                            market_df = await self.gamma_source.fetch()
+                if markets_df.height > 0:
+                    markets_df = markets_df.with_columns(
+                        [
+                            pl.lit("gamma-api.polymarket.com").alias("_source_api"),
+                            pl.lit(self.context.run_timestamp).alias("_fetch_timestamp"),
+                            pl.lit("/markets").alias("_api_endpoint"),
+                        ]
+                    )
+                    path = Path("raw/gamma") / f"{stamp}_markets.parquet"
+                    self.storage.write(markets_df, path)
+                    result.markets_path = self.storage._resolve_path(path)
+                    result.market_count = markets_df.height
 
-                    if market_df.height > 0:
-                        markets_path = Path("raw/gamma") / f"{stamp}_markets.parquet"
-                        self.storage.write(market_df, markets_path)
-                        result.markets_path = self.storage._resolve_path(markets_path)
-                        result.market_count = market_df.height
-
-                        if "token_ids" in market_df.columns:
-                            tokens_df = market_df.select(pl.col("token_ids")).explode("token_ids").drop_nulls().unique()
-                            token_ids = [str(x) for x in tokens_df["token_ids"].to_list() if x]
-                            result.token_count = len(token_ids)
-
-                        progress.log(
-                            f"[green]✓[/green] Gamma: {result.market_count} markets, " f"{result.token_count} tokens"
-                        )
-                    else:
-                        progress.log("[yellow]•[/yellow] Gamma returned 0 rows")
-
-                except Exception as e:
-                    logger.error(f"Gamma fetch failed: {e}", exc_info=True)
-                    progress.log(f"[red]✗[/red] Gamma fetch failed: {e!r}")
-
-                finally:
-                    progress.update(task, visible=False)
+                    token_ids = (
+                        markets_df.select("token_ids").explode("token_ids").drop_nulls().unique().to_series().to_list()
+                    )
+                    result.token_count = len(token_ids)
 
             if self.include_prices and token_ids:
-                task = progress.add_task(f"Prices history ({self.n_months}m)", total=len(token_ids))
+                progress.update(task, advance=1, description="prices")
+                async with self.clob:
+                    dfs = await asyncio.gather(
+                        *[limited(self.clob.fetch_prices_history(tid, start_ts, end_ts)) for tid in token_ids],
+                        return_exceptions=True,
+                    )
 
-                sem = asyncio.Semaphore(self.max_concurrency)
-                prices_out: list[pl.DataFrame] = []
-
-                async def fetch_token_prices(token_id: str) -> None:
-                    subtask = progress.add_task(f"[cyan]{token_id}", total=None)
-                    try:
-                        async with sem:
-                            async with self.clob_source:
-                                df = await self.clob_source.fetch_prices_history(
-                                    token_id, start_ts, end_ts, fidelity=60
-                                )
-
-                        if df.height > 0:
-                            prices_out.append(df)
-                            progress.log(f"[green]✓[/green] {token_id}: {df.height} prices")
-                        else:
-                            progress.log(f"[yellow]•[/yellow] {token_id}: empty")
-
-                    except Exception as e:
-                        logger.error(f"Price fetch failed for {token_id}: {e}", exc_info=True)
-                        progress.log(f"[red]✗[/red] {token_id}: {e!r}")
-
-                    finally:
-                        progress.update(subtask, visible=False)
-                        progress.advance(task)
-
-                await asyncio.gather(*[fetch_token_prices(t) for t in token_ids])
-
-                if prices_out:
-                    combined = pl.concat(prices_out, how="vertical")
-                    prices_path = Path("raw/clob") / f"{stamp}_prices.parquet"
-                    self.storage.write(combined, prices_path)
-                    result.prices_path = self.storage._resolve_path(prices_path)
-                    result.price_point_count = combined.height
-                    progress.log(f"[green]✓[/green] Prices: {result.price_point_count} rows")
-
-                progress.update(task, visible=False)
-
-            elif self.include_prices and not token_ids:
-                progress.log("[yellow]•[/yellow] No token IDs available; skipping prices")
+                valid_dfs: list[pl.DataFrame] = [df for df in dfs if isinstance(df, pl.DataFrame) and df.height > 0]
+                if valid_dfs:
+                    df = pl.concat(valid_dfs)
+                    df = df.with_columns(
+                        [
+                            pl.lit("clob.polymarket.com").alias("_source_api"),
+                            pl.lit(self.context.run_timestamp).alias("_fetch_timestamp"),
+                            pl.lit("/prices-history").alias("_api_endpoint"),
+                        ]
+                    )
+                    path = Path("raw/clob") / f"{stamp}_prices.parquet"
+                    self.storage.write(df, path)
+                    result.prices_path = self.storage._resolve_path(path)
+                    result.price_point_count = df.height
 
             if self.include_orderbooks and token_ids:
-                task = progress.add_task(f"Order books ({len(token_ids)} tokens)", total=len(token_ids))
-                progress.log("[cyan]Starting order book snapshots[/cyan]")
+                progress.update(task, advance=1, description="orderbooks")
+                async with self.clob:
+                    df = await self.clob.fetch_orderbooks(token_ids)
 
-                sem = asyncio.Semaphore(self.max_concurrency)
-                orderbooks_out: list[pl.DataFrame] = []
-
-                async def fetch_token_orderbook(token_id: str) -> None:
-                    subtask = progress.add_task(f"[cyan]{token_id}", total=None)
-                    try:
-                        async with sem:
-                            async with self.clob_source:
-                                df = await self.clob_source.fetch_orderbook_to_dataframe(token_id)
-
-                            if df.height > 0:
-                                orderbooks_out.append(df)
-                                progress.log(f"[green]✓[/green] {token_id}: {df.height} levels")
-                            else:
-                                progress.log(f"[yellow]•[/yellow] {token_id}: empty order book")
-                    except Exception as e:
-                        logger.error(f"Order book fetch failed for {token_id}: {e}", exc_info=True)
-                        progress.log(f"[red]✗[/red] {token_id}: {e!r}")
-
-                    finally:
-                        progress.update(subtask, visible=False)
-                        progress.advance(task)
-
-                await asyncio.gather(*[fetch_token_orderbook(t) for t in token_ids])
-
-                if orderbooks_out:
-                    combined = pl.concat(orderbooks_out, how="vertical")
-                    orderbooks_path = Path("raw/clob") / f"{stamp}_orderbooks.parquet"
-                    self.storage.write(combined, orderbooks_path)
-                    result.orderbooks_path = self.storage._resolve_path(orderbooks_path)
-                    result.orderbook_levels = combined.height
-                    progress.log(f"[green]✓[/green] Order books: {result.orderbook_levels} levels")
-
-                progress.update(task, visible=False)
-
-            elif self.include_orderbooks and not token_ids:
-                progress.log("[yellow]•[/yellow] No token IDs available; skipping order books")
+                if df.height > 0:
+                    df = df.with_columns(
+                        [
+                            pl.lit("clob.polymarket.com").alias("_source_api"),
+                            pl.lit(self.context.run_timestamp).alias("_fetch_timestamp"),
+                            pl.lit("/book").alias("_api_endpoint"),
+                        ]
+                    )
+                    path = Path("raw/clob") / f"{stamp}_orderbooks.parquet"
+                    self.storage.write(df, path)
+                    result.orderbooks_path = self.storage._resolve_path(path)
+                    result.orderbook_levels = df.height
 
             if self.include_spreads and token_ids:
-                task = progress.add_task(f"Spreads ({len(token_ids)} tokens)", total=len(token_ids))
-                progress.log("[cyan]Starting spread data fetch[/cyan]")
+                progress.update(task, advance=1, description="spreads")
+                async with self.clob:
+                    rows = await asyncio.gather(
+                        *[limited(self.clob.fetch_spread(tid)) for tid in token_ids],
+                        return_exceptions=True,
+                    )
 
-                sem = asyncio.Semaphore(self.max_concurrency)
-                spreads_out: list[dict[str, str | float | int | None]] = []
-
-                async def fetch_tokens_spread(token_id: str) -> None:
-                    subtask = progress.add_task(f"[cyan]{token_id}", total=None)
-                    try:
-                        async with sem:
-                            async with self.clob_source:
-                                spread_data = await self.clob_source.fetch_spread(token_id)
-                        spreads_out.append(spread_data)
-                        bid = spread_data.get("bid")
-                        ask = spread_data.get("ask")
-                        spread = spread_data.get("spread")
-                        progress.log(
-                            f"[green]✓[/green] {token_id}: "
-                            f"bid={bid:.4f if isinstance(bid, (int, float)) else 'N/A'}, "
-                            f"ask={ask:.4f if isinstance(ask, (int, float)) else 'N/A'}, "
-                            f"spread={spread:.4f if isinstance(spread, (int, float)) else 'N/A'}"
-                        )
-
-                    except Exception as e:
-                        logger.error(f"Spread fetch failed for {token_id}: {e}", exc_info=True)
-                        progress.log(f"[red]✗[/red] {token_id}: {e!r}")
-
-                    finally:
-                        progress.update(subtask, visible=False)
-                        progress.advance(task)
-
-                await asyncio.gather(*[fetch_tokens_spread(t) for t in token_ids])
-
-                if spreads_out:
-                    spreads_df = pl.DataFrame(spreads_out)
-                    spreads_path = Path("raw/clob") / f"{stamp}_spreads.parquet"
-                    self.storage.write(spreads_df, spreads_path)
-                    result.spreads_path = self.storage._resolve_path(spreads_path)
-                    result.spreads_count = len(spreads_out)
-                    progress.log(f"[green]✓[/green] Spreads: {result.spreads_count} tokens")
-
-                progress.update(task, visible=False)
-
-            elif self.include_spreads and not token_ids:
-                progress.log("[yellow]•[/yellow] No token IDs available; skipping spreads")
+                rows = [r for r in rows if isinstance(r, dict)]
+                if rows:
+                    df = pl.DataFrame(rows)
+                    df = df.with_columns(
+                        [
+                            pl.lit("clob.polymarket.com").alias("_source_api"),
+                            pl.lit(self.context.run_timestamp).alias("_fetch_timestamp"),
+                            pl.lit("/book").alias("_api_endpoint"),
+                        ]
+                    )
+                    path = Path("raw/clob") / f"{stamp}_spreads.parquet"
+                    self.storage.write(df, path)
+                    result.spreads_path = self.storage._resolve_path(path)
+                    result.spreads_count = df.height
 
             if self.include_trades:
-                progress.log("[cyan]Starting trades backfill[/cyan]")
-                try:
-                    async with self.clob_source:
-                        trades_df = await self.clob_source.fetch_trades(market_ids=None, since_ts=start_ts)
+                progress.update(task, advance=1, description="trades")
+                market_ids = (
+                    markets_df.select("id").drop_nulls().to_series().to_list() if markets_df is not None else None
+                )
+                async with self.clob:
+                    df = await self.clob.fetch_trades(market_ids=market_ids, since_ts=start_ts)
 
-                    if trades_df.height > 0:
-                        trades_path = Path("raw/clob") / f"{stamp}_trades.parquet"
-                        self.storage.write(trades_df, trades_path)
-                        result.trades_path = self.storage._resolve_path(trades_path)
-                        result.trade_count = trades_df.height
-                        progress.log(f"[green]✓[/green] Trades: {result.trade_count} rows")
-                    else:
-                        progress.log("[yellow]•[/yellow] Trades returned 0 rows")
+                if df.height > 0:
+                    df = df.with_columns(
+                        [
+                            pl.lit("data-api.polymarket.com").alias("_source_api"),
+                            pl.lit(self.context.run_timestamp).alias("_fetch_timestamp"),
+                            pl.lit("/trades").alias("_api_endpoint"),
+                        ]
+                    )
+                    path = Path("raw/data_api") / f"{stamp}_trades.parquet"
+                    self.storage.write(df, path)
+                    result.trades_path = self.storage._resolve_path(path)
+                    result.trade_count = df.height
 
-                except Exception as e:
-                    logger.error(f"Trades fetch failed: {e}", exc_info=True)
-                    progress.log(f"[red]✗[/red] Trades fetch failed: {e!r}")
-
-            progress.log("[bold green]Fetch complete[/bold green]")
-
-        logger.info(
-            f"Fetch stage complete: {result.market_count} markets, "
-            f"{result.token_count} tokens, {result.price_point_count} prices, "
-            f"{result.trade_count} trades, {result.orderbook_levels} order book levels, "
-            f"{result.spreads_count} spreads"
-        )
+            progress.update(task, advance=1, description="done")
 
         return result
