@@ -4,7 +4,9 @@ from pathlib import Path
 
 import polars as pl
 
+from polymorph.config import Config, GeneralConfig, StorageConfig
 from polymorph.core.storage import ParquetStorage
+from polymorph.core.storage_factory import make_storage
 
 
 def test_parquet_storage_round_trip(tmp_path: Path) -> None:
@@ -51,3 +53,12 @@ def test_parquet_storage_scan_glob_pattern(tmp_path: Path) -> None:
     # Verify combined data from both files
     assert collected.shape == (4, 1), "Should combine rows from both parquet files"
     assert set(collected["x"].to_list()) == {1, 2, 3, 4}, "Should have all values from both files"
+
+
+def test_make_storage_uses_config_data_dir_when_root_not_provided(tmp_path: Path) -> None:
+    cfg = Config(
+        general=GeneralConfig(http_timeout=30, max_concurrency=8, data_dir=str(tmp_path)),
+        storage=StorageConfig(backend="parquet"),
+    )
+    storage = make_storage(cfg)
+    assert storage.root == tmp_path

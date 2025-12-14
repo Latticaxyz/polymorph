@@ -34,17 +34,28 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
         async def __aexit__(self, _exc_type, _exc, _tb) -> None:
             return None
 
-        async def fetch(self, *args, **kwargs) -> pl.DataFrame:
+        async def fetch_markets(self, *, resolved_only: bool = False) -> pl.DataFrame:
             return pl.DataFrame(
                 {
                     "id": ["m1", "m2"],
+                    "question": ["Market 1", "Market 2"],
+                    "description": [None, None],
+                    "market_slug": [None, None],
+                    "condition_id": ["c1", "c2"],
                     "token_ids": [["YES1", "NO1"], ["YES2", "NO2"]],
+                    "outcomes": [["YES", "NO"], ["YES", "NO"]],
+                    "active": [True, False],
                     "closed": [False, True],
+                    "archived": [False, False],
+                    "created_at": [None, None],
+                    "end_date": [None, None],
+                    "resolved": [False, True],
+                    "resolution_date": [None, None],
+                    "resolution_outcome": [None, "YES"],
+                    "tags": [[], []],
+                    "category": [None, None],
                 }
             )
-
-        async def fetch_resolved_markets(self, max_markets: int | None = None) -> pl.DataFrame:
-            return await self.fetch()
 
     class DummyClob:
         def __init__(self) -> None:
@@ -70,22 +81,23 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
             return pl.DataFrame(
                 {
                     "t": [start_ts, end_ts],
-                    "p": [0.4, 0.6],
+                    "p": ["0.4", "0.6"],  # Prices are strings per API spec
                     "token_id": [token_id, token_id],
                 }
             )
 
-        async def fetch_orderbook_to_dataframe(self, token_id: str) -> pl.DataFrame:
-            self.orderbook_calls.append(token_id)
-            return pl.DataFrame(
-                {
-                    "token_id": [token_id, token_id],
-                    "timestamp": [123, 123],
-                    "side": ["bid", "ask"],
-                    "price": [0.4, 0.6],
-                    "size": [10.0, 5.0],
-                }
-            )
+        async def fetch_orderbooks(self, token_ids: list[str]) -> pl.DataFrame:
+            """Fetch orderbooks for multiple tokens (used by FetchStage)."""
+            rows = []
+            for token_id in token_ids:
+                self.orderbook_calls.append(token_id)
+                rows.extend(
+                    [
+                        {"token_id": token_id, "timestamp": 123, "side": "bid", "price": "0.4", "size": "10.0"},
+                        {"token_id": token_id, "timestamp": 123, "side": "ask", "price": "0.6", "size": "5.0"},
+                    ]
+                )
+            return pl.DataFrame(rows)
 
         async def fetch_spread(self, token_id: str) -> dict[str, str | float | int | None]:
             self.spread_calls.append(token_id)
@@ -100,12 +112,12 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
 
         async def fetch_trades(self, market_ids=None, since_ts: int | None = None) -> pl.DataFrame:
             self.trades_called = True
-            base_ts = since_ts or 0
+            base_ts = since_ts or 1704067200000  # Valid timestamp in milliseconds
             return pl.DataFrame(
                 {
-                    "timestamp": [base_ts, base_ts + 86_400],
-                    "size": [1.0, 2.0],
-                    "price": [0.4, 0.6],
+                    "timestamp": [base_ts, base_ts + 86_400_000],  # Milliseconds
+                    "size": ["1.0", "2.0"],  # Strings per API spec
+                    "price": ["0.4", "0.6"],  # Strings per API spec
                     "conditionId": ["c1", "c1"],
                 }
             )
@@ -121,9 +133,10 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
         resolved_only=False,
         max_concurrency=4,
     )
-    fetch_stage.gamma_source = DummyGamma()  # type: ignore[assignment]
+    # Override with dummy sources to avoid real API calls
+    fetch_stage.gamma = DummyGamma()  # type: ignore[assignment]
     clob = DummyClob()
-    fetch_stage.clob_source = clob  # type: ignore[assignment]
+    fetch_stage.clob = clob  # type: ignore[assignment]
 
     fetch_result: FetchResult = await fetch_stage.execute(None)
 
