@@ -1,6 +1,4 @@
-"""CLOB (Central Limit Order Book) data source for Polymarket.
-
-Per verified API behavior:
+"""
 - CLOB /prices-history: Returns timestamps/prices as numbers, converted to strings
 - CLOB /book: Returns price/size as strings (decimal format)
 - Data API /trades: Returns price/size/timestamp as numbers, converted to strings
