@@ -1,4 +1,18 @@
-[default]
+[general]
 http_timeout = 30
 max_concurrency = 8
 data_dir = "data"
+
+[storage]
+# backend:
+# - "parquet": parquet on disk
+# - "parquet_duckdb": parquet on disk + a local duckdb catalog (datasets table)
+# - "sql": shared DB only (paths -> tables)
+#
+# If sql_url is set while backend is "parquet" or "parquet_duckdb", storage becomes HYBRID:
+# it writes to parquet + mirrors into the shared DB.
+backend = "parquet_duckdb"
+parquet_root = ""
+duckdb_path = ""
+sql_url = ""
+sql_schema = ""
