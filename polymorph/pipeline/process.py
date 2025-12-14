@@ -3,8 +3,8 @@ from pathlib import Path
 import polars as pl
 
 from polymorph.core.base import PipelineContext, PipelineStage
-from polymorph.core.storage import ParquetStorage
 from polymorph.models.pipeline import FetchResult, ProcessResult
+from polymorph.utils.constants import MS_PER_DAY
 from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -19,7 +19,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
     ):
         super().__init__(context)
 
-        self.storage = ParquetStorage(context.data_dir)
+        self.storage = context.storage
 
         self.raw_dir = Path(raw_dir) if raw_dir else context.data_dir / "raw"
         self.processed_dir = Path(processed_dir) if processed_dir else context.data_dir / "processed"
@@ -66,10 +66,12 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             timestamp_col = "t"
             price_col = "p"
 
+        # Note: Timestamps are Unix milliseconds (per Polymarket API spec)
+        # To get daily boundaries: (timestamp_ms // MS_PER_DAY) * MS_PER_DAY
         daily_returns = (
-            lf.with_columns((pl.col(timestamp_col).cast(pl.Int64) // 86_400 * 86_400).alias("day_ts"))
+            lf.with_columns((pl.col(timestamp_col).cast(pl.Int64) // MS_PER_DAY * MS_PER_DAY).alias("day_ts"))
             .group_by(["token_id", "day_ts"])
-            .agg(pl.col(price_col).mean().alias("price_day"))
+            .agg(pl.col(price_col).cast(pl.Float64).mean().alias("price_day"))
             .sort(["token_id", "day_ts"])
             .with_columns(pl.col("price_day").pct_change().over("token_id").alias("ret"))
             .collect()
@@ -92,15 +94,11 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             run_timestamp=self.context.run_timestamp,
         )
 
-        trades_dir = self.raw_dir / "clob"
+        trades_dir = self.raw_dir / "data_api"
         trades_pattern = trades_dir / "*_trades.parquet"
 
         if not trades_dir.exists():
-            trades_dir = self.raw_dir / "data_api"
-            trades_pattern = trades_dir / "trades.parquet"
-
-        if not trades_dir.exists():
-            logger.warning(f"Trades directory does not exist: {trades_dir}")
+            logger.warning(f"Data API trades directory does not exist: {trades_dir}")
             return result
 
         try:
@@ -116,18 +114,20 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             logger.warning(f"Trade data missing required columns. " f"Found: {schema.names()}, Need: {required_cols}")
             return result
 
+        # Note: Timestamps are Unix milliseconds (per Polymarket API spec)
+        # To get daily boundaries: (timestamp_ms // MS_PER_DAY) * MS_PER_DAY
         trade_agg = (
             lf.with_columns(
                 [
-                    (pl.col("timestamp").cast(pl.Int64) // 86_400 * 86_400).alias("day_ts"),
-                    (pl.col("size") * pl.col("price")).alias("notional"),
+                    (pl.col("timestamp").cast(pl.Int64) // MS_PER_DAY * MS_PER_DAY).alias("day_ts"),
+                    (pl.col("size").cast(pl.Float64) * pl.col("price").cast(pl.Float64)).alias("notional"),
                 ]
             )
             .group_by(["conditionId", "day_ts"])
             .agg(
                 [
                     pl.len().alias("trades"),
-                    pl.col("size").sum().alias("size_sum"),
+                    pl.col("size").cast(pl.Float64).sum().alias("size_sum"),
                     pl.col("notional").sum().alias("notional_sum"),
                 ]
             )
@@ -146,6 +146,8 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         return result
 
     async def execute(self, _input_data: FetchResult | None = None) -> ProcessResult:
+        _ = _input_data
+
         logger.info("Starting process stage")
 
         returns_result = self.build_daily_returns()
