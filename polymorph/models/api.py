@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime
+from pydantic import BaseModel, Field, field_validator
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from polymorph.utils.parse import parse_decimal_string, parse_timestamp_ms
 
 
 class Market(BaseModel):
-    id: str | None = None
+    """Market metadata from Gamma API.
+
+    Per API spec, clobTokenIds is returned as an array of strings.
+    """
+
+    id: str
     question: str | None = None
     description: str | None = None
     market_slug: str | None = Field(default=None, alias="marketSlug")
     condition_id: str | None = Field(default=None, alias="conditionId")
-    clob_token_ids: list[str] | str | None = Field(default=None, alias="clobTokenIds")
+    clob_token_ids: list[str] = Field(default_factory=list, alias="clobTokenIds")
     outcomes: list[str] | None = None
     active: bool | None = None
     closed: bool | None = None
@@ -26,82 +30,106 @@ class Market(BaseModel):
     category: str | None = None
     rewards: dict[str, float] | None = None
 
-    model_config = {"populate_by_name": True, "extra": "allow"}
-
-    @field_validator("clob_token_ids", mode="before")
-    @classmethod
-    def normalize_token_ids(cls, v: list[str] | str | None) -> list[str]:
-        if v is None:
-            return []
-        if isinstance(v, list):
-            return [str(x) for x in v if x is not None]
-        if isinstance(v, str):
-            s = v.strip()
-            if s.startswith("[") and s.endswith("]"):
-                try:
-                    arr = json.loads(s)
-                    if isinstance(arr, list):
-                        return [str(x) for x in arr if x is not None]
-                except Exception:
-                    return [s]
-            if "," in s:
-                return [t.strip() for t in s.split(",") if t.strip()]
-            return [s]
-        return [str(v)]
+    model_config = {"populate_by_name": True, "extra": "forbid"}
 
 
 class Token(BaseModel):
+    """Individual outcome token in a market."""
+
     token_id: str = Field(..., alias="tokenId")
     outcome: str | None = None
     market_id: str | None = Field(default=None, alias="marketId")
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "forbid"}
 
 
 class PricePoint(BaseModel):
-    t: int
-    p: float
+    """Single price data point at a specific timestamp.
+
+    Per API spec:
+    - t: Unix milliseconds (not seconds)
+    - p: Decimal string (not float)
+    """
+
+    t: int  # Unix milliseconds
+    p: str  # Decimal string
     token_id: str | None = Field(default=None, alias="tokenId")
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "forbid"}
+
+    @field_validator("t", mode="before")
+    @classmethod
+    def validate_timestamp(cls, v: object) -> int:
+        return parse_timestamp_ms(v)
+
+    @field_validator("p", mode="before")
+    @classmethod
+    def validate_price(cls, v: object) -> str:
+        return parse_decimal_string(v)
 
 
 class Trade(BaseModel):
-    id: str | None = None
-    market: str | None = None
-    asset_id: str | None = Field(default=None, alias="assetId")
+    """Trade data from Data API.
+
+    Per API spec:
+    - timestamp: Unix milliseconds
+    - price/size: Decimal strings (not floats)
+    """
+
+    id: str
+    market: str  # condition_id
+    asset_id: str = Field(..., alias="assetId")  # token_id
     condition_id: str | None = Field(default=None, alias="conditionId")
-    side: str | None = None
-    size: float | None = None
-    price: float | None = None
+    side: str  # "BUY" or "SELL"
+    size: str  # Decimal string
+    price: str  # Decimal string
     fee_rate_bps: int | None = Field(default=None, alias="feeRateBps")
     status: str | None = None
-    created_at: str | None = Field(default=None, alias="createdAt")
-    timestamp: int | None = None
+    timestamp: int  # Unix milliseconds
     maker_address: str | None = Field(default=None, alias="makerAddress")
     match_time: str | None = Field(default=None, alias="matchTime")
 
-    model_config = {"populate_by_name": True, "extra": "allow"}
+    model_config = {"populate_by_name": True, "extra": "forbid"}
 
-    @model_validator(mode="after")
-    def parse_timestamp_from_created_at(self) -> Trade:
-        if self.timestamp is None and self.created_at is not None:
-            try:
-                dt = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
-                self.timestamp = int(dt.timestamp())
-            except (ValueError, OSError):
-                pass
-        return self
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def validate_timestamp(cls, v: object) -> int:
+        return parse_timestamp_ms(v)
+
+    @field_validator("price", "size", mode="before")
+    @classmethod
+    def validate_decimal(cls, v: object) -> str:
+        return parse_decimal_string(v)
 
 
 class OrderBookLevel(BaseModel):
-    price: float
-    size: float
+    """Single level in an order book (bid or ask).
+
+    Per API spec, price and size are decimal strings.
+    """
+
+    price: str  # Decimal string
+    size: str  # Decimal string
+
+    @field_validator("price", "size", mode="before")
+    @classmethod
+    def validate_decimal(cls, v: object) -> str:
+        return parse_decimal_string(v)
 
 
 class OrderBook(BaseModel):
+    """Current market depth (bids and asks) for a token.
+
+    Per API spec:
+    - timestamp: Unix milliseconds
+    - bids/asks: Arrays of {price: string, size: string}
+
+    Computed fields (mid_price, spread, best_bid, best_ask) are floats
+    for calculation convenience.
+    """
+
     token_id: str
-    timestamp: int
+    timestamp: int  # Unix milliseconds
     bids: list[OrderBookLevel] = Field(default_factory=list)
     asks: list[OrderBookLevel] = Field(default_factory=list)
     mid_price: float | None = None
@@ -109,7 +137,12 @@ class OrderBook(BaseModel):
     best_bid: float | None = None
     best_ask: float | None = None
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = {"extra": "forbid"}
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def validate_timestamp(cls, v: object) -> int:
+        return parse_timestamp_ms(v)
 
     def calculate_spread(self) -> float | None:
         if self.best_bid is not None and self.best_ask is not None:
@@ -129,23 +162,36 @@ class OrderBook(BaseModel):
 
         if side in ("bid", "both"):
             for level in self.bids:
-                if level.price >= self.mid_price - distance:
-                    depth += level.size
+                # Convert string price to float for comparison
+                level_price = float(level.price)
+                if level_price >= self.mid_price - distance:
+                    depth += float(level.size)
 
         if side in ("ask", "both"):
             for level in self.asks:
-                if level.price <= self.mid_price + distance:
-                    depth += level.size
+                # Convert string price to float for comparison
+                level_price = float(level.price)
+                if level_price <= self.mid_price + distance:
+                    depth += float(level.size)
 
         return depth
 
 
 class MarketResolution(BaseModel):
+    """Market resolution outcome."""
+
     market_id: str
     condition_id: str | None = None
     outcome: str
-    resolution_timestamp: int | None = None
+    resolution_timestamp: int | None = None  # Unix milliseconds
     resolution_date: str | None = None
     winning_outcome_price: float | None = None
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = {"extra": "forbid"}
+
+    @field_validator("resolution_timestamp", mode="before")
+    @classmethod
+    def validate_timestamp(cls, v: object) -> int | None:
+        if v is None:
+            return None
+        return parse_timestamp_ms(v)
