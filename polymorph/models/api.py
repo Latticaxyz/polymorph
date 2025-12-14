@@ -6,11 +6,6 @@ from polymorph.utils.parse import parse_decimal_string, parse_timestamp_ms
 
 
 class Market(BaseModel):
-    """Market metadata from Gamma API.
-
-    Per API spec, clobTokenIds is returned as an array of strings.
-    """
-
     id: str
     question: str | None = None
     description: str | None = None
@@ -34,8 +29,6 @@ class Market(BaseModel):
 
 
 class Token(BaseModel):
-    """Individual outcome token in a market."""
-
     token_id: str = Field(..., alias="tokenId")
     outcome: str | None = None
     market_id: str | None = Field(default=None, alias="marketId")
@@ -44,13 +37,6 @@ class Token(BaseModel):
 
 
 class PricePoint(BaseModel):
-    """Single price data point at a specific timestamp.
-
-    Per API spec:
-    - t: Unix milliseconds (not seconds)
-    - p: Decimal string (not float)
-    """
-
     t: int  # Unix milliseconds
     p: str  # Decimal string
     token_id: str | None = Field(default=None, alias="tokenId")
@@ -69,13 +55,6 @@ class PricePoint(BaseModel):
 
 
 class Trade(BaseModel):
-    """Trade data from Data API.
-
-    Per API spec:
-    - timestamp: Unix milliseconds
-    - price/size: Decimal strings (not floats)
-    """
-
     id: str
     market: str  # condition_id
     asset_id: str = Field(..., alias="assetId")  # token_id
@@ -103,11 +82,6 @@ class Trade(BaseModel):
 
 
 class OrderBookLevel(BaseModel):
-    """Single level in an order book (bid or ask).
-
-    Per API spec, price and size are decimal strings.
-    """
-
     price: str  # Decimal string
     size: str  # Decimal string
 
@@ -118,16 +92,6 @@ class OrderBookLevel(BaseModel):
 
 
 class OrderBook(BaseModel):
-    """Current market depth (bids and asks) for a token.
-
-    Per API spec:
-    - timestamp: Unix milliseconds
-    - bids/asks: Arrays of {price: string, size: string}
-
-    Computed fields (mid_price, spread, best_bid, best_ask) are floats
-    for calculation convenience.
-    """
-
     token_id: str
     timestamp: int  # Unix milliseconds
     bids: list[OrderBookLevel] = Field(default_factory=list)
@@ -178,8 +142,6 @@ class OrderBook(BaseModel):
 
 
 class MarketResolution(BaseModel):
-    """Market resolution outcome."""
-
     market_id: str
     condition_id: str | None = None
     outcome: str
