@@ -13,11 +13,10 @@ from rich.table import Table
 from polymorph import __version__
 from polymorph.config import config
 from polymorph.core.base import PipelineContext, RuntimeConfig
-from polymorph.pipeline import FetchStage, ProcessStage
+from polymorph.pipeline import FetchStage
 from polymorph.utils.logging import setup as setup_logging
 
 click.Context.formatter_class = click.HelpFormatter
-
 
 app = typer.Typer(
     add_completion=False,
@@ -27,12 +26,9 @@ app = typer.Typer(
 )
 console = Console()
 
-# Module-level defaults to avoid B008 flake8 errors
-_DEFAULT_DATA_DIR = Path(config.data_dir)
-_DEFAULT_HTTP_TIMEOUT = config.http_timeout
-_DEFAULT_MAX_CONCURRENCY = config.max_concurrency
-_DEFAULT_RAW_DIR = Path(config.data_dir) / "raw"
-_DEFAULT_PROCESSED_DIR = Path(config.data_dir) / "processed"
+_DEFAULT_DATA_DIR = Path(config.general.data_dir)
+_DEFAULT_HTTP_TIMEOUT = config.general.http_timeout
+_DEFAULT_MAX_CONCURRENCY = config.general.max_concurrency
 
 
 def create_context(
@@ -94,35 +90,27 @@ def version() -> None:
     table.add_column("Field")
     table.add_column("Value")
     table.add_row("Version", __version__)
-    table.add_row("Data dir", config.data_dir)
-    table.add_row("HTTP timeout", str(config.http_timeout))
-    table.add_row("Max concurrency", str(config.max_concurrency))
+    table.add_row("Data dir", config.general.data_dir)
+    table.add_row("HTTP timeout", str(config.general.http_timeout))
+    table.add_row("Max concurrency", str(config.general.max_concurrency))
     console.print(table)
 
 
-@app.command(help="Fetch data and store to Parquet files")
+@app.command(help="Fetch and store Gamma & CLOB API data")
 def fetch(
     ctx: typer.Context,
     months: int = typer.Option(1, "--months", "-m", help="Number of months to backfill"),
     out: Path = typer.Option(_DEFAULT_DATA_DIR, "--out", help="Root output dir for raw data"),
     include_trades: bool = typer.Option(True, "--trades/--no-trades", help="Include recent trades via Data-API"),
-    include_prices: bool = typer.Option(True, "--prices/--no-prices", help="Include prices-history for each token"),
-    include_gamma: bool = typer.Option(True, "--gamma/--no-gamma", help="Fetch market metadata from Gamma"),
-    include_orderbooks: bool = typer.Option(
-        False, "--orderbooks/--no-orderbooks", help="Fetch real-time order book snapshots for all tokens"
-    ),
-    include_spreads: bool = typer.Option(
-        False,
-        "--spreads/--no-spreads",
-        help="Fetch bid-ask spread data for all tokens",
-    ),
-    resolved_only: bool = typer.Option(
-        False, "--resolved", help="Fetch only resolved/closed markets (when used with --gamma)"
-    ),
-    max_concurrency: int | None = typer.Option(
-        None,
-        "--local-max-concurrency",
-        help="Override global max concurrency just for this run",
+    include_prices: bool = typer.Option(True, "--prices/--no-prices", help="Include price history via CLOB"),
+    include_gamma: bool = typer.Option(True, "--gamma/--no-gamma", help="Include Gamma markets snapshot"),
+    include_orderbooks: bool = typer.Option(False, "--orderbooks/--no-orderbooks", help="Include orderbooks via CLOB"),
+    include_spreads: bool = typer.Option(False, "--spreads/--no-spreads", help="Include spreads via CLOB"),
+    resolved_only: bool = typer.Option(False, "--resolved-only", help="Gamma: only resolved markets"),
+    max_concurrency: int = typer.Option(
+        _DEFAULT_MAX_CONCURRENCY,
+        "--max-concurrency",
+        help="Max concurrent HTTP requests (overrides TOML/config for this command)",
     ),
 ) -> None:
     console.log(
@@ -133,7 +121,6 @@ def fetch(
     )
 
     runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
-
     context = create_context(out, runtime_config=runtime_config)
 
     stage = FetchStage(
@@ -147,74 +134,9 @@ def fetch(
         resolved_only=resolved_only,
         max_concurrency=max_concurrency,
     )
+
     asyncio.run(stage.execute())
     console.print("Fetch complete.")
-
-
-@app.command(help="Processing tools and algorithms (ex. Monte Carlo simulations")
-def process(
-    ctx: typer.Context,
-    in_: Path = typer.Option(
-        _DEFAULT_RAW_DIR,
-        "--in",
-        help="Input directory with raw parquet data",
-    ),
-    out: Path = typer.Option(
-        _DEFAULT_PROCESSED_DIR,
-        "--out",
-        help="Output directory for processed data",
-    ),
-) -> None:
-    console.log(f"in={in_}, out={out}")
-    runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
-
-    context = create_context(Path(config.data_dir), runtime_config=runtime_config)
-    stage = ProcessStage(context=context, raw_dir=in_, processed_dir=out)
-    asyncio.run(stage.execute())
-    console.print("Processing complete.")
-
-
-mc_app = typer.Typer(help="Monte Carlo tooling")
-app.add_typer(mc_app, name="mc")
-
-
-@mc_app.command("run")
-def mc_run(
-    market_id: str = typer.Option(..., "--market-id"),
-    trials: int = typer.Option(10000, "--trials"),
-    horizon_days: int = typer.Option(7, "--horizon-days"),
-    in_: Path = typer.Option(
-        _DEFAULT_PROCESSED_DIR,
-        "--in",
-        help="Processed data directory",
-    ),
-) -> None:
-    _ = (market_id, trials, horizon_days, in_)
-    pass
-    # simulator = MonteCarloSimulator(processed_dir=in_)
-    # result = simulator.run(market_id, trials, horizon_days)
-    # table = Table(title="Monte Carlo Result")
-    # table.add_column("Metric")
-    # table.add_column("Value")
-    # for k, v in result.items():
-    #     table.add_row(k, f"{v:.6f}" if isinstance(v, float) else str(v))
-    # console.print(table)
-
-
-@app.command(help="Hyperparameter searchig and tuning (Optima)")
-def tune(
-    study: str = typer.Option("polymorph", "--study"),
-    n_trials: int = typer.Option(20, "--n-trials"),
-    in_: Path = typer.Option(
-        _DEFAULT_PROCESSED_DIR,
-        "--in",
-        help="Processed data directory",
-    ),
-) -> None:
-    _ = (study, n_trials, in_)
-    pass
-    # searcher = ParameterSearcher(processed_dir=in_)
-    # searcher.run(study, n_trials)
 
 
 def main() -> None:
