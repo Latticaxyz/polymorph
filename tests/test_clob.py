@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 import polars as pl
@@ -9,7 +8,8 @@ import pytest
 from polymorph.config import config as base_config
 from polymorph.core.base import PipelineContext, RuntimeConfig
 from polymorph.models.api import OrderBook, OrderBookLevel
-from polymorph.sources.clob import CLOB, MAX_PRICE_HISTORY_SECONDS
+from polymorph.sources.clob import CLOB
+from polymorph.utils.constants import CLOB_MAX_PRICE_HISTORY_MS
 from polymorph.utils.time import utc
 
 
@@ -30,21 +30,27 @@ async def test_clob_fetch_price_history_single_chunk(tmp_path: Path) -> None:
     context = _make_context(tmp_path)
     clob = CLOB(context, clob_base_url="https://example.test", data_api_url="https://example-data.test")
 
+    # Use valid millisecond timestamps (2020-01-01 range)
+    t1 = 1577836800000  # 2020-01-01 00:00:00
+    t2 = 1577836800001  # 2020-01-01 00:00:00.001
+
     async def fake_get(
         url: str, params: dict[str, int | str | bool], use_data_api: bool = False
-    ) -> list[dict[str, str | int | float]]:
+    ) -> dict[str, list[dict[str, str | int | float]]]:
         """Mock HTTP GET that returns price data."""
         _ = use_data_api
         assert "prices-history" in url
-        assert params["market"] == "YES"
-        return [
-            {"t": 1, "p": 0.1},
-            {"t": 2, "p": 0.2},
-        ]
+        assert params["token_id"] == "YES"
+        return {
+            "history": [
+                {"t": t1, "p": "0.1"},
+                {"t": t2, "p": "0.2"},
+            ]
+        }
 
     clob._get = fake_get  # type: ignore[method-assign]
 
-    df = await clob.fetch_prices_history("YES", start_ts=0, end_ts=10, fidelity=60)
+    df = await clob.fetch_prices_history("YES", start_ts=t1, end_ts=t2, fidelity=60)
 
     # Verify structure
     assert df.height == 2
@@ -54,8 +60,8 @@ async def test_clob_fetch_price_history_single_chunk(tmp_path: Path) -> None:
     # Verify data
     timestamps = df["t"].to_list()
     prices = df["p"].to_list()
-    assert timestamps == [1, 2]
-    assert prices == [0.1, 0.2]
+    assert timestamps == [t1, t2]
+    assert prices == ["0.1", "0.2"]  # Stored as decimal strings
 
 
 @pytest.mark.asyncio
@@ -70,21 +76,25 @@ async def test_clob_fetch_price_history_chunking(tmp_path: Path, monkeypatch: py
         """Mock chunk fetcher that records calls."""
         _ = fidelity
         calls.append((start_ts, end_ts))
-        return pl.DataFrame({"t": [start_ts], "p": [1.0], "token_id": [token_id]})
+        return pl.DataFrame({"t": [start_ts], "p": ["1.0"], "token_id": [token_id]})
 
     monkeypatch.setattr(clob, "_fetch_price_history_chunk", fake_chunk)  # type: ignore[arg-type]
 
-    span = MAX_PRICE_HISTORY_SECONDS * 2 + 10
-    df = await clob.fetch_prices_history("YES", start_ts=0, end_ts=span, fidelity=60)
+    # Use milliseconds (2x the max window + some extra)
+    start_ts = 1577836800000  # 2020-01-01
+    span_ms = CLOB_MAX_PRICE_HISTORY_MS * 2 + 10000  # > 28 days
+    end_ts = start_ts + span_ms
 
-    assert len(calls) >= 2, "Expected multiple chunks for long time span"
+    df = await clob.fetch_prices_history("YES", start_ts=start_ts, end_ts=end_ts, fidelity=60)
+
+    assert len(calls) >= 2, f"Expected multiple chunks for long time span, got {len(calls)} calls: {calls}"
     assert df.height == len(calls), "Should have one row per chunk"
     assert set(df["token_id"].to_list()) == {"YES"}
 
     all_start_times = [start for start, _ in calls]
     all_end_times = [end for _, end in calls]
-    assert min(all_start_times) == 0, "First chunk should start at 0"
-    assert max(all_end_times) >= span, "Last chunk should cover the end"
+    assert min(all_start_times) == start_ts, f"First chunk should start at {start_ts}"
+    assert max(all_end_times) >= end_ts, f"Last chunk should cover end_ts {end_ts}"
 
 
 @pytest.mark.asyncio
@@ -93,10 +103,8 @@ async def test_clob_fetch_trades_parses_created_at_and_filters(tmp_path: Path, m
     context = _make_context(tmp_path)
     clob = CLOB(context)
 
-    created1 = "2025-01-01T00:00:00+00:00"
-    created2 = "2025-01-02T00:00:00+00:00"
-    t1 = int(datetime.fromisoformat(created1).timestamp())
-    t2 = int(datetime.fromisoformat(created2).timestamp())
+    t1 = 1704067200000
+    t2 = 1704153600000
     mid_ts = (t1 + t2) // 2
 
     async def fake_paged(
@@ -104,13 +112,12 @@ async def test_clob_fetch_trades_parses_created_at_and_filters(tmp_path: Path, m
         offset: int,
         market_ids: list[str] | None = None,
     ) -> list[dict[str, str | int | float]]:
-        """Mock paginated trade fetcher."""
         _ = market_ids
         assert limit == 1000
         assert offset == 0
         return [
-            {"created_at": created1, "size": 1.0, "price": 0.4, "conditionId": "c1"},
-            {"created_at": created2, "size": 2.0, "price": 0.5, "conditionId": "c2"},
+            {"timestamp": t1, "size": 1, "price": 0.4, "conditionId": "c1"},
+            {"timestamp": t2, "size": 2, "price": 0.5, "conditionId": "c2"},
         ]
 
     monkeypatch.setattr(clob, "fetch_trades_paged", fake_paged)  # type: ignore[arg-type]
@@ -130,8 +137,8 @@ async def test_clob_fetch_trades_parses_created_at_and_filters(tmp_path: Path, m
     assert set(df["conditionId"].to_list()) == {"c2"}, "Should keep only the second trade"
 
     # Verify trade data
-    assert df["size"].to_list() == [2.0]
-    assert df["price"].to_list() == [0.5]
+    assert df["size"].to_list() == ["2"]
+    assert df["price"].to_list() == ["0.5"]
 
 
 @pytest.mark.asyncio
@@ -142,11 +149,11 @@ async def test_clob_orderbook_dataframe_and_spread(tmp_path: Path, monkeypatch: 
 
     async def fake_fetch_orderbook(token_id: str) -> OrderBook:
         """Mock orderbook fetcher with realistic data."""
-        bids = [OrderBookLevel(price=0.4, size=10.0)]
-        asks = [OrderBookLevel(price=0.6, size=5.0)]
+        bids = [OrderBookLevel(price="0.4", size="10.0")]
+        asks = [OrderBookLevel(price="0.6", size="5.0")]
         ob = OrderBook(
             token_id=token_id,
-            timestamp=123456789,
+            timestamp=1577836800000,
             bids=bids,
             asks=asks,
             best_bid=0.4,
@@ -159,7 +166,7 @@ async def test_clob_orderbook_dataframe_and_spread(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(clob, "fetch_orderbook", fake_fetch_orderbook)  # type: ignore[arg-type]
 
     # Test DataFrame conversion
-    df = await clob.fetch_orderbook_to_dataframe("YES")
+    df = await clob.fetch_orderbooks(["YES"])
     assert set(df.columns) == {"token_id", "timestamp", "side", "price", "size"}
     assert df.height == 2, "Should have 2 rows (1 bid + 1 ask)"
     assert set(df["side"].to_list()) == {"bid", "ask"}
@@ -167,14 +174,14 @@ async def test_clob_orderbook_dataframe_and_spread(tmp_path: Path, monkeypatch: 
     # Verify bid data
     bid_rows = df.filter(pl.col("side") == "bid")
     assert bid_rows.height == 1
-    assert bid_rows["price"].to_list() == [0.4]
-    assert bid_rows["size"].to_list() == [10.0]
+    assert bid_rows["price"].to_list() == ["0.4"]
+    assert bid_rows["size"].to_list() == ["10.0"]
 
     # Verify ask data
     ask_rows = df.filter(pl.col("side") == "ask")
     assert ask_rows.height == 1
-    assert ask_rows["price"].to_list() == [0.6]
-    assert ask_rows["size"].to_list() == [5.0]
+    assert ask_rows["price"].to_list() == ["0.6"]
+    assert ask_rows["size"].to_list() == ["5.0"]
 
     # Test spread calculation
     spread = await clob.fetch_spread("YES")
@@ -201,7 +208,7 @@ async def test_clob_fetch_orderbook_empty(tmp_path: Path, monkeypatch: pytest.Mo
         url: str, params: dict[str, int | str | bool], use_data_api: bool = False
     ) -> dict[str, list[dict[str, float]] | int]:
         """Mock GET returning empty orderbook."""
-        return {"bids": [], "asks": [], "timestamp": 123456789}
+        return {"bids": [], "asks": [], "timestamp": 1577836800000}
 
     monkeypatch.setattr(clob, "_get", fake_get)
 
@@ -258,9 +265,9 @@ async def test_clob_fetch_price_history_empty_response(tmp_path: Path, monkeypat
 
     async def fake_get(
         url: str, params: dict[str, int | str | bool], use_data_api: bool = False
-    ) -> list[dict[str, int | float]]:
-        """Mock GET returning empty list."""
-        return []
+    ) -> dict[str, list[dict[str, int | float]]]:
+        """Mock GET returning empty history dict."""
+        return {"history": []}
 
     monkeypatch.setattr(clob, "_get", fake_get)
 
@@ -286,16 +293,14 @@ async def test_clob_fetch_price_history_deduplicates_timestamps(
         call_count += 1
 
         if call_count == 1:
-            # First chunk: timestamps 0-100, with overlap at 100
-            return pl.DataFrame({"t": [0, 50, 100], "p": [0.5, 0.6, 0.7], "token_id": [token_id] * 3})
+            return pl.DataFrame({"t": [0, 50, 100], "p": ["0.5", "0.6", "0.7"], "token_id": [token_id] * 3})
         else:
-            # Second chunk: timestamps 100-200, overlap at 100
-            return pl.DataFrame({"t": [100, 150, 200], "p": [0.7, 0.8, 0.9], "token_id": [token_id] * 3})
+            return pl.DataFrame({"t": [100, 150, 200], "p": ["0.7", "0.8", "0.9"], "token_id": [token_id] * 3})
 
     monkeypatch.setattr(clob, "_fetch_price_history_chunk", fake_chunk)
 
     # Request long enough to trigger chunking
-    span = MAX_PRICE_HISTORY_SECONDS * 2
+    span = CLOB_MAX_PRICE_HISTORY_MS * 2
     df = await clob.fetch_prices_history("TOKEN", start_ts=0, end_ts=span, fidelity=60)
 
     # Verify deduplication occurred (line 153 in clob.py)
@@ -319,10 +324,11 @@ async def test_clob_fetch_trades_stops_at_max_trades(tmp_path: Path, monkeypatch
         nonlocal call_count
         call_count += 1
 
-        # Always return full page to test limit enforcement
+        # Use integer timestamps in milliseconds
+        base_ts = 1704067200000  # 2025-01-01 in milliseconds
         return [
             {
-                "created_at": f"2025-01-{(offset // 1000) + 1:02d}T00:00:00+00:00",
+                "timestamp": base_ts + offset + i,
                 "size": 1.0,
                 "price": 0.5,
                 "conditionId": f"c{i}",
@@ -346,21 +352,21 @@ async def test_clob_fetch_trades_filters_by_since_ts_boundary(tmp_path: Path, mo
     clob = CLOB(context)
 
     # Use timestamp that matches the middle trade (2025-01-12T13:46:40)
-    boundary_ts = 1736689600  # This is the exact timestamp for the "exact" trade
+    boundary_ts = 1736689600000  # This is the exact timestamp for the "exact" trade in milliseconds
 
     async def fake_paged(
         limit: int, offset: int, market_ids: list[str] | None = None
     ) -> list[dict[str, str | int | float]]:
         """Mock returning trades at and around boundary."""
         return [
-            {"created_at": "2025-01-01T00:00:00+00:00", "size": 1.0, "price": 0.5, "conditionId": "before"},
+            {"timestamp": 1704067200000, "size": 1.0, "price": 0.5, "conditionId": "before"},
             {
-                "created_at": "2025-01-12T13:46:40+00:00",
+                "timestamp": 1736689600000,
                 "size": 2.0,
                 "price": 0.6,
                 "conditionId": "exact",
-            },  # exactly boundary_ts
-            {"created_at": "2025-01-12T13:46:41+00:00", "size": 3.0, "price": 0.7, "conditionId": "after"},
+            },
+            {"timestamp": 1736689601000, "size": 3.0, "price": 0.7, "conditionId": "after"},
         ]
 
     monkeypatch.setattr(clob, "fetch_trades_paged", fake_paged)
