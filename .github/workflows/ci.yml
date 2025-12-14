@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint & Type Check
+    name: Lint & type check
     runs-on: ubuntu-latest
 
     steps:
@@ -66,7 +66,7 @@ jobs:
         run: uv run pytest
 
   security:
-    name: Security Checks
+    name: Security checks
     runs-on: ubuntu-latest
 
     steps:
