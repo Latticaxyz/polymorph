@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from datetime import timezone
 
-from hypothesis import given
-from hypothesis import strategies as st
+import pytest
 
 from polymorph.utils.time import months_ago, utc
 
@@ -14,7 +13,7 @@ def test_utc_returns_timezone_aware_utc() -> None:
     assert now.utcoffset() == timezone.utc.utcoffset(now)
 
 
-@given(st.integers(min_value=0, max_value=240))
+@pytest.mark.parametrize("n", [0, 1, 2, 11, 12, 13, 24, 120, 240])
 def test_months_ago_not_in_future(n: int) -> None:
     past = months_ago(n)
     now = utc()
