@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from pydantic import BaseModel, Field, field_validator
 
 from polymorph.utils.parse import parse_decimal_string, parse_timestamp_ms
@@ -25,7 +27,23 @@ class Market(BaseModel):
     category: str | None = None
     rewards: dict[str, float] | None = None
 
-    model_config = {"populate_by_name": True, "extra": "forbid"}
+    model_config = {"populate_by_name": True, "extra": "ignore"}
+
+    @field_validator("outcomes", mode="before")
+    @classmethod
+    def validate_outcomes(cls, v: object) -> list[str] | None:
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return None
 
 
 class Token(BaseModel):
@@ -33,7 +51,7 @@ class Token(BaseModel):
     outcome: str | None = None
     market_id: str | None = Field(default=None, alias="marketId")
 
-    model_config = {"populate_by_name": True, "extra": "forbid"}
+    model_config = {"populate_by_name": True, "extra": "ignore"}
 
 
 class PricePoint(BaseModel):
@@ -41,7 +59,7 @@ class PricePoint(BaseModel):
     p: str  # Decimal string
     token_id: str | None = Field(default=None, alias="tokenId")
 
-    model_config = {"populate_by_name": True, "extra": "forbid"}
+    model_config = {"populate_by_name": True, "extra": "ignore"}
 
     @field_validator("t", mode="before")
     @classmethod
@@ -68,7 +86,7 @@ class Trade(BaseModel):
     maker_address: str | None = Field(default=None, alias="makerAddress")
     match_time: str | None = Field(default=None, alias="matchTime")
 
-    model_config = {"populate_by_name": True, "extra": "forbid"}
+    model_config = {"populate_by_name": True, "extra": "ignore"}
 
     @field_validator("timestamp", mode="before")
     @classmethod
@@ -101,7 +119,7 @@ class OrderBook(BaseModel):
     best_bid: float | None = None
     best_ask: float | None = None
 
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore"}
 
     @field_validator("timestamp", mode="before")
     @classmethod
@@ -149,7 +167,7 @@ class MarketResolution(BaseModel):
     resolution_date: str | None = None
     winning_outcome_price: float | None = None
 
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "ignore"}
 
     @field_validator("resolution_timestamp", mode="before")
     @classmethod
