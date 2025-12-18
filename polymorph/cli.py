@@ -100,22 +100,25 @@ def version() -> None:
 def fetch(
     ctx: typer.Context,
     minutes: int = typer.Option(
-        0, "--minutes", help="Number of minutes to backfill (mutually exclusive with other time options)"
+        0, "--minutes", help="Fetch markets created in the past n minutes (mutually exclusive with other time options)"
     ),
     hours: int = typer.Option(
-        0, "--hours", help="Number of hours to backfill (mutually exclusive with other time options)"
+        0, "--hours", help="Fetch markets created in the past n hours (mutually exclusive with other time options)"
     ),
     days: int = typer.Option(
-        0, "--days", help="Number of days to backfill (mutually exclusive with other time options)"
+        0, "--days", help="Fetch markets created in the past n days (mutually exclusive with other time options)"
     ),
     weeks: int = typer.Option(
-        0, "--weeks", help="Number of weeks to backfill (mutually exclusive with other time options)"
+        0, "--weeks", help="Fetch markets created in the past n weeks (mutually exclusive with other time options)"
     ),
     months: int = typer.Option(
-        0, "--months", "-m", help="Number of months to backfill (mutually exclusive with other time options)"
+        0,
+        "--months",
+        "-m",
+        help="Fetch markets created in the past n months (mutually exclusive with other time options)",
     ),
     years: int = typer.Option(
-        0, "--years", help="Number of years to backfill (mutually exclusive with other time options)"
+        0, "--years", help="Fetch markets created in the past n years (mutually exclusive with other time options)"
     ),
     out: Path = typer.Option(_DEFAULT_DATA_DIR, "--out", help="Root output dir for raw data"),
     include_trades: bool = typer.Option(True, "--trades/--no-trades", help="Include recent trades via Data-API"),
@@ -128,9 +131,6 @@ def fetch(
         False, "--spreads/--no-spreads", help="Include current spread snapshots (not historical)"
     ),
     resolved_only: bool = typer.Option(False, "--resolved-only", help="Gamma: only resolved markets"),
-    full_history: bool = typer.Option(
-        False, "--full-history", help="Fetch complete price history (all available data)"
-    ),
     max_concurrency: int = typer.Option(
         _DEFAULT_MAX_CONCURRENCY,
         "--max-concurrency",
@@ -169,7 +169,7 @@ def fetch(
         f"time_period={time_period_str}, out={out}, gamma={include_gamma}, "
         f"prices={include_prices}, trades={include_trades}, "
         f"order_books={include_orderbooks}, spreads={include_spreads}, "
-        f"resolved_only={resolved_only}, full_history={full_history}"
+        f"resolved_only={resolved_only}"
     )
 
     runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
@@ -190,7 +190,6 @@ def fetch(
         include_spreads=include_spreads,
         resolved_only=resolved_only,
         max_concurrency=max_concurrency,
-        full_price_history=full_history,
     )
 
     asyncio.run(stage.execute())
