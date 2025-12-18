@@ -246,6 +246,10 @@ class CLOB(DataSource[pl.DataFrame]):
         if start_ts is None or end_ts is None:
             raise ValueError("Either 'interval' or both 'start_ts' and 'end_ts' must be provided")
 
+        # TODO: RATE LIMITING ISSUE - Chunking loop makes sequential requests without delay
+        # TODO: Combined with concurrent token fetching, this overwhelms the rate limiter
+        # TODO: Consider adding small delay between chunks or redesigning chunking strategy
+        # TODO: Race condition in rate limiter (see rate_limit.py) makes this worse
         results: list[pl.DataFrame] = []
         current_start = start_ts
 
@@ -349,6 +353,9 @@ class CLOB(DataSource[pl.DataFrame]):
         return ob
 
     async def fetch_orderbooks(self, token_ids: list[str]) -> pl.DataFrame:
+        # TODO: PERFORMANCE - This fetches orderbooks sequentially (one at a time)
+        # TODO: Change to use asyncio.gather with semaphore for concurrent fetching
+        # TODO: Should respect max_concurrency setting like price history does
         rows: list[dict[str, object]] = []
 
         for token_id in token_ids:
