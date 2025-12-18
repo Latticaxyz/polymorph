@@ -21,7 +21,7 @@ from polymorph.core.retry import with_retry
 from polymorph.models.api import OrderBook, OrderBookLevel
 from polymorph.utils.constants import CLOB_MAX_PRICE_HISTORY_MS
 from polymorph.utils.logging import get_logger
-from polymorph.utils.parse import parse_decimal_string, parse_timestamp_ms
+from polymorph.utils.parse import parse_decimal_flexible, parse_decimal_string, parse_timestamp_ms
 
 logger = get_logger(__name__)
 
@@ -78,6 +78,9 @@ class CLOB(DataSource[pl.DataFrame]):
             self._client = httpx.AsyncClient(
                 timeout=self.context.http_timeout,
                 http2=True,
+                headers={
+                    "User-Agent": "polymorph/0.2.1 (httpx; +https://github.com/lattica/polymorph)",
+                },
             )
         return self._client
 
@@ -127,7 +130,7 @@ class CLOB(DataSource[pl.DataFrame]):
     ) -> pl.DataFrame:
         url = f"{self.clob_base_url}/prices-history"
         params: dict[str, str | int | float | bool] = {
-            "token_id": token_id,
+            "market": token_id,  # API requires 'market' not 'token_id'
             "startTs": start_ts,  # Send milliseconds directly
             "endTs": end_ts,  # Send milliseconds directly
             "fidelity": fidelity,  # Fidelity is in seconds
@@ -158,8 +161,68 @@ class CLOB(DataSource[pl.DataFrame]):
                 raise ValueError(f"History item missing required fields: {item}")
 
             # Parse strictly using our parsers
-            t = parse_timestamp_ms(item["t"])
-            p = parse_decimal_string(item["p"])
+            # API returns timestamps in seconds, convert to milliseconds
+            t_seconds = item["t"]
+            if isinstance(t_seconds, (int, float)):
+                t = int(t_seconds * 1000) if t_seconds < 10000000000 else int(t_seconds)
+            else:
+                t = parse_timestamp_ms(t_seconds)
+
+            # API returns price as a number, convert to decimal string
+            p = parse_decimal_flexible(item["p"])
+
+            rows.append({"token_id": token_id, "t": t, "p": p})
+
+        return pl.DataFrame(rows)
+
+    @with_retry()
+    async def _fetch_price_history_interval(
+        self,
+        token_id: str,
+        interval: str,  # 'all', 'max', '1d', '1w', etc.
+        fidelity: int,
+    ) -> pl.DataFrame:
+        url = f"{self.clob_base_url}/prices-history"
+        params: dict[str, str | int | float | bool] = {
+            "market": token_id,
+            "interval": interval,
+            "fidelity": fidelity,
+        }
+
+        data = await self._get(url, params=params, use_data_api=False)
+
+        # Strict response validation
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected dict response, got {type(data).__name__}")
+
+        hist = data.get("history")
+        if hist is None:
+            raise ValueError("Response missing 'history' field")
+        if not isinstance(hist, list):
+            raise ValueError(f"'history' must be list, got {type(hist).__name__}")
+
+        if not hist:
+            return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Utf8})
+
+        rows: list[dict[str, object]] = []
+        for item in hist:
+            if not isinstance(item, dict):
+                raise ValueError(f"History item must be dict, got {type(item).__name__}")
+
+            # Strict parsing - must have both 't' and 'p'
+            if "t" not in item or "p" not in item:
+                raise ValueError(f"History item missing required fields: {item}")
+
+            # Parse strictly using our parsers
+            # API returns timestamps in seconds, convert to milliseconds
+            t_seconds = item["t"]
+            if isinstance(t_seconds, (int, float)):
+                t = int(t_seconds * 1000) if t_seconds < 10000000000 else int(t_seconds)
+            else:
+                t = parse_timestamp_ms(t_seconds)
+
+            # API returns price as a number, convert to decimal string
+            p = parse_decimal_flexible(item["p"])
 
             rows.append({"token_id": token_id, "t": t, "p": p})
 
@@ -168,11 +231,20 @@ class CLOB(DataSource[pl.DataFrame]):
     async def fetch_prices_history(
         self,
         token_id: str,
-        start_ts: int,  # Unix milliseconds
-        end_ts: int,  # Unix milliseconds
+        start_ts: int | None = None,  # Unix milliseconds (optional)
+        end_ts: int | None = None,  # Unix milliseconds (optional)
         fidelity: int | None = None,
+        interval: str | None = None,  # 'all', 'max', '1d', '1w', etc. (mutually exclusive with start_ts/end_ts)
     ) -> pl.DataFrame:
         fidelity = fidelity if fidelity is not None else self.default_fidelity
+
+        # If interval is provided, use it (gets full history without chunking)
+        if interval is not None:
+            return await self._fetch_price_history_interval(token_id, interval, fidelity)
+
+        # Otherwise use start_ts/end_ts with chunking
+        if start_ts is None or end_ts is None:
+            raise ValueError("Either 'interval' or both 'start_ts' and 'end_ts' must be provided")
 
         results: list[pl.DataFrame] = []
         current_start = start_ts
@@ -197,6 +269,7 @@ class CLOB(DataSource[pl.DataFrame]):
 
         return combined
 
+    @with_retry()
     async def fetch_orderbook(self, token_id: str) -> OrderBook:
         url = f"{self.clob_base_url}/book"
         params: dict[str, str | int | float | bool] = {"token_id": token_id}
@@ -322,6 +395,7 @@ class CLOB(DataSource[pl.DataFrame]):
             "timestamp": ob.timestamp,
         }
 
+    @with_retry()
     async def fetch_trades_paged(
         self,
         limit: int,
