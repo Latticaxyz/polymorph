@@ -97,7 +97,9 @@ class Gamma(DataSource[pl.DataFrame]):
         return cast(JsonValue, resp.json())
 
     @with_retry()
-    async def fetch_markets(self, *, resolved_only: bool = False) -> pl.DataFrame:
+    async def fetch_markets(
+        self, *, resolved_only: bool = False, start_ts: int | None = None, end_ts: int | None = None
+    ) -> pl.DataFrame:
         markets: list[Market] = []
 
         for page in range(1, self.max_pages + 1):
@@ -146,6 +148,25 @@ class Gamma(DataSource[pl.DataFrame]):
                 # Filter by resolved_only if requested
                 if resolved_only and market.resolved is not True:
                     continue
+
+                # Filter by time range if requested
+                if start_ts is not None or end_ts is not None:
+                    if market.created_at is None:
+                        continue
+
+                    from datetime import datetime
+
+                    try:
+                        created_dt = datetime.fromisoformat(market.created_at.replace("Z", "+00:00"))
+                        created_ms = int(created_dt.timestamp() * 1000)
+
+                        if start_ts is not None and created_ms < start_ts:
+                            continue
+                        if end_ts is not None and created_ms > end_ts:
+                            continue
+                    except (ValueError, AttributeError) as e:
+                        logger.warning(f"Skipping market {market.id}: invalid created_at '{market.created_at}' - {e}")
+                        continue
 
                 markets.append(market)
 
