@@ -25,19 +25,25 @@ async def test_rate_limiter_singleton_instances() -> None:
 
 @pytest.mark.asyncio
 async def test_rate_limiter_throttles_requests() -> None:
-    """Test that rate limiter enforces limits by raising RateLimitError."""
-    limiter = await RateLimiter.get_instance("test-throttle", max_requests=2, time_window_seconds=0.1)
+    """Test that rate limiter enforces limits by sleeping when exceeded."""
+    import time
+
+    limiter = await RateLimiter.get_instance("test-throttle", max_requests=2, time_window_seconds=0.2)
 
     await limiter.acquire()
     await limiter.acquire()
 
-    with pytest.raises(RateLimitError):
-        await limiter.acquire()
+    # Third request should sleep until window expires
+    start = time.time()
+    await limiter.acquire()
+    elapsed = time.time() - start
+
+    # Should have slept at least 0.15s (0.2s window minus some tolerance)
+    assert elapsed > 0.15, f"Expected sleep of at least 0.15s, got {elapsed:.3f}s"
 
     stats = limiter.get_stats()
     current = cast(int, stats["current_count"])
-    max_requests = cast(int, stats["max_requests"])
-    assert current == max_requests
+    assert current <= cast(int, stats["max_requests"])
 
 
 @pytest.mark.asyncio
@@ -70,19 +76,26 @@ async def test_with_retry_does_not_retry_on_client_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rate_limiter_raises_when_limit_exceeded() -> None:
-    """Test that rate limiter raises RateLimitError when limit is exceeded."""
+async def test_rate_limiter_sleeps_when_limit_exceeded() -> None:
+    """Test that rate limiter sleeps when limit is exceeded."""
+    import time
+
     limiter = await RateLimiter.get_instance(
-        "test-raises",
+        "test-sleeps",
         max_requests=2,
-        time_window_seconds=10.0,
+        time_window_seconds=0.3,
     )
 
     await limiter.acquire()
     await limiter.acquire()
 
-    with pytest.raises(RateLimitError):
-        await limiter.acquire()
+    # Third request should sleep
+    start = time.time()
+    await limiter.acquire()
+    elapsed = time.time() - start
+
+    # Should have slept at least 0.25s (0.3s window minus some tolerance)
+    assert elapsed > 0.25, f"Expected sleep of at least 0.25s, got {elapsed:.3f}s"
 
 
 @pytest.mark.asyncio
