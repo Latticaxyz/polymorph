@@ -142,7 +142,7 @@ async def test_gamma_fetch_empty_response_formats(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_gamma_fetch_markets_filters_by_time_range(tmp_path: Path) -> None:
-    """Test that fetch_markets filters markets by created_at timestamp."""
+    """Test that fetch_markets filters markets active during time range, excluding those resolved before period."""
     runtime_cfg = RuntimeConfig(http_timeout=None, max_concurrency=None, data_dir=str(tmp_path))
     context = PipelineContext(
         config=base_config,
@@ -153,47 +153,69 @@ async def test_gamma_fetch_markets_filters_by_time_range(tmp_path: Path) -> None
 
     gamma = Gamma(context, page_size=10, max_pages=1)
 
-    markets = [
+    active_markets = [
         {
             "id": "m1",
-            "question": "Old market",
+            "question": "Old market still active",
             "clobTokenIds": '["1"]',
             "createdAt": "2024-01-01T00:00:00Z",  # Jan 1, 2024 = 1704067200000 ms
-        },
-        {
-            "id": "m2",
-            "question": "Mid market",
-            "clobTokenIds": '["2"]',
-            "createdAt": "2024-06-01T00:00:00Z",  # Jun 1, 2024 = 1717200000000 ms
+            "closed": False,
         },
         {
             "id": "m3",
-            "question": "Recent market",
+            "question": "Mid market",
             "clobTokenIds": '["3"]',
+            "createdAt": "2024-06-01T00:00:00Z",  # Jun 1, 2024 = 1717200000000 ms
+            "closed": False,
+        },
+        {
+            "id": "m4",
+            "question": "Recent market",
+            "clobTokenIds": '["4"]',
             "createdAt": "2024-12-01T00:00:00Z",  # Dec 1, 2024 = 1733011200000 ms
+            "closed": False,
         },
     ]
 
-    async def fake_get(_url: str, params: dict[str, int | bool] | None = None):
-        return markets
+    # Market that ended during the period
+    closed_markets = [
+        {
+            "id": "m5",
+            "question": "Market that ended during period",
+            "clobTokenIds": '["5"]',
+            "createdAt": "2024-02-01T00:00:00Z",  # Created before
+            "endDate": "2024-07-01T00:00:00Z",  # Ended in July (during Jun 1 - Jan 1 period)
+            "resolutionDate": "2024-07-01T00:00:00Z",
+            "closed": True,
+        },
+    ]
+
+    async def fake_get(_url: str, params: dict[str, int | bool | str] | None = None):
+        if params and params.get("closed") is False:
+            return active_markets
+        elif params and "end_date_min" in params:
+            # Only return markets that ended DURING the period
+            return closed_markets
+        return []
 
     gamma._get = fake_get  # type: ignore[method-assign]
 
-    # Test: Filter to markets created between June and December 2024
+    # Test: Filter to markets active between June and December 2024
     start_ts = 1717200000000  # Jun 1, 2024
     end_ts = 1735689600000  # Jan 1, 2025
     df = await gamma.fetch_markets(resolved_only=False, start_ts=start_ts, end_ts=end_ts)
 
-    assert df.height == 2, f"Should return 2 markets (m2 and m3), got {df.height}"
+    assert df.height == 4, f"Should return 4 markets (m1, m3, m4, m5), got {df.height}"
     market_ids = df["id"].to_list()
-    assert "m2" in market_ids, "Should include m2 (mid market)"
-    assert "m3" in market_ids, "Should include m3 (recent market)"
-    assert "m1" not in market_ids, "Should exclude m1 (too old)"
+    assert "m1" in market_ids, "Should include m1 (created before period but still active)"
+    assert "m3" in market_ids, "Should include m3 (created during period)"
+    assert "m4" in market_ids, "Should include m4 (created during period)"
+    assert "m5" in market_ids, "Should include m5 (ended during period)"
 
 
 @pytest.mark.asyncio
 async def test_gamma_fetch_markets_filters_with_start_ts_only(tmp_path: Path) -> None:
-    """Test that fetch_markets filters with only start_ts (no end_ts)."""
+    """Test that fetch_markets filters with only start_ts (includes markets active after start)."""
     runtime_cfg = RuntimeConfig(http_timeout=None, max_concurrency=None, data_dir=str(tmp_path))
     context = PipelineContext(
         config=base_config,
@@ -204,22 +226,52 @@ async def test_gamma_fetch_markets_filters_with_start_ts_only(tmp_path: Path) ->
 
     gamma = Gamma(context, page_size=10, max_pages=1)
 
-    markets = [
-        {"id": "m1", "question": "Old", "clobTokenIds": '["1"]', "createdAt": "2024-01-01T00:00:00Z"},
-        {"id": "m2", "question": "Recent", "clobTokenIds": '["2"]', "createdAt": "2024-12-01T00:00:00Z"},
+    active_markets = [
+        {
+            "id": "m1",
+            "question": "Old still active",
+            "clobTokenIds": '["1"]',
+            "createdAt": "2024-01-01T00:00:00Z",
+            "closed": False,
+        },
+        {
+            "id": "m3",
+            "question": "Recent",
+            "clobTokenIds": '["3"]',
+            "createdAt": "2024-12-01T00:00:00Z",
+            "closed": False,
+        },
     ]
 
-    async def fake_get(_url: str, params: dict[str, int | bool] | None = None):
-        return markets
+    closed_markets = [
+        {
+            "id": "m2",
+            "question": "Old resolved before start",
+            "clobTokenIds": '["2"]',
+            "createdAt": "2024-02-01T00:00:00Z",
+            "resolutionDate": "2024-05-01T00:00:00Z",
+            "closed": True,
+        },
+    ]
+
+    async def fake_get(_url: str, params: dict[str, int | bool | str] | None = None):
+        if params and params.get("closed") is False:
+            return active_markets
+        elif params and "end_date_min" in params:
+            return closed_markets
+        return []
 
     gamma._get = fake_get  # type: ignore[method-assign]
 
-    # Test: Only filter by minimum creation date
+    # Test: Filter by minimum start time (markets active after Jun 1)
     start_ts = 1717200000000  # Jun 1, 2024
     df = await gamma.fetch_markets(resolved_only=False, start_ts=start_ts, end_ts=None)
 
-    assert df.height == 1, f"Should return 1 market (m2), got {df.height}"
-    assert df["id"][0] == "m2", "Should only include m2 (recent market)"
+    assert df.height == 2, f"Should return 2 markets (m1, m3), got {df.height}"
+    market_ids = df["id"].to_list()
+    assert "m1" in market_ids, "Should include m1 (created before but still active)"
+    assert "m3" in market_ids, "Should include m3 (created after start)"
+    assert "m2" not in market_ids, "Should exclude m2 (resolved before start)"
 
 
 @pytest.mark.asyncio
@@ -235,22 +287,33 @@ async def test_gamma_fetch_markets_handles_missing_created_at(tmp_path: Path) ->
 
     gamma = Gamma(context, page_size=10, max_pages=1)
 
-    markets = [
-        {"id": "m1", "question": "Has timestamp", "clobTokenIds": '["1"]', "createdAt": "2024-06-01T00:00:00Z"},
-        {"id": "m2", "question": "No timestamp", "clobTokenIds": '["2"]'},  # Missing createdAt
+    active_markets = [
+        {
+            "id": "m1",
+            "question": "Has timestamp",
+            "clobTokenIds": '["1"]',
+            "createdAt": "2024-06-01T00:00:00Z",
+            "closed": False,
+        },
+        {"id": "m2", "question": "No timestamp", "clobTokenIds": '["2"]', "closed": False},  # Missing createdAt
     ]
 
-    async def fake_get(_url: str, params: dict[str, int | bool] | None = None):
-        return markets
+    async def fake_get(_url: str, params: dict[str, int | bool | str] | None = None):
+        if params and params.get("closed") is False:
+            return active_markets
+        return []
 
     gamma._get = fake_get  # type: ignore[method-assign]
 
-    # Test: With time filtering, market without created_at is excluded
+    # Test: With time filtering but no end_ts, market without created_at is included
+    # (client-side filtering only happens when end_ts is provided)
     start_ts = 1704067200000  # Jan 1, 2024
     df = await gamma.fetch_markets(resolved_only=False, start_ts=start_ts)
 
-    assert df.height == 1, f"Should return 1 market (m1), got {df.height}"
-    assert df["id"][0] == "m1", "Should only include m1 (has created_at)"
+    assert df.height == 2, f"Should return 2 markets (m1, m2), got {df.height}"
+    market_ids = df["id"].to_list()
+    assert "m1" in market_ids
+    assert "m2" in market_ids
 
 
 @pytest.mark.asyncio
@@ -266,22 +329,39 @@ async def test_gamma_fetch_markets_handles_invalid_created_at(tmp_path: Path) ->
 
     gamma = Gamma(context, page_size=10, max_pages=1)
 
-    markets = [
-        {"id": "m1", "question": "Valid timestamp", "clobTokenIds": '["1"]', "createdAt": "2024-06-01T00:00:00Z"},
-        {"id": "m2", "question": "Invalid timestamp", "clobTokenIds": '["2"]', "createdAt": "not-a-date"},
+    active_markets = [
+        {
+            "id": "m1",
+            "question": "Valid timestamp",
+            "clobTokenIds": '["1"]',
+            "createdAt": "2024-06-01T00:00:00Z",
+            "closed": False,
+        },
+        {
+            "id": "m2",
+            "question": "Invalid timestamp",
+            "clobTokenIds": '["2"]',
+            "createdAt": "not-a-date",
+            "closed": False,
+        },
     ]
 
-    async def fake_get(_url: str, params: dict[str, int | bool] | None = None):
-        return markets
+    async def fake_get(_url: str, params: dict[str, int | bool | str] | None = None):
+        if params and params.get("closed") is False:
+            return active_markets
+        return []
 
     gamma._get = fake_get  # type: ignore[method-assign]
 
-    # Test: With time filtering, market with invalid created_at is excluded
+    # Test: With time filtering but no end_ts, market with invalid created_at is included
+    # (client-side filtering only happens when end_ts is provided)
     start_ts = 1704067200000  # Jan 1, 2024
     df = await gamma.fetch_markets(resolved_only=False, start_ts=start_ts)
 
-    assert df.height == 1, f"Should return 1 market (m1), got {df.height}"
-    assert df["id"][0] == "m1", "Should only include m1 (valid created_at)"
+    assert df.height == 2, f"Should return 2 markets (m1, m2), got {df.height}"
+    market_ids = df["id"].to_list()
+    assert "m1" in market_ids
+    assert "m2" in market_ids
 
 
 @pytest.mark.asyncio
@@ -314,3 +394,77 @@ async def test_gamma_fetch_markets_no_time_filter_includes_all(tmp_path: Path) -
     market_ids = df["id"].to_list()
     assert "m1" in market_ids
     assert "m2" in market_ids
+
+
+@pytest.mark.asyncio
+async def test_gamma_fetch_markets_excludes_future_created_markets(tmp_path: Path) -> None:
+    """Test that active markets created AFTER the time period are excluded."""
+    runtime_cfg = RuntimeConfig(http_timeout=None, max_concurrency=None, data_dir=str(tmp_path))
+    context = PipelineContext(
+        config=base_config,
+        run_timestamp=utc(),
+        data_dir=tmp_path,
+        runtime_config=runtime_cfg,
+    )
+
+    gamma = Gamma(context, page_size=10, max_pages=1)
+
+    # Create test markets with various creation dates
+    active_markets = [
+        {
+            "id": "m1",
+            "question": "Created before period, still active",
+            "clobTokenIds": '["1"]',
+            "createdAt": "2024-10-01T00:00:00Z",  # Oct 1, 2024
+            "closed": False,
+        },
+        {
+            "id": "m2",
+            "question": "Created during period, still active",
+            "clobTokenIds": '["2"]',
+            "createdAt": "2024-11-15T00:00:00Z",  # Nov 15, 2024
+            "closed": False,
+        },
+        {
+            "id": "m3",
+            "question": "Created AFTER period, still active",
+            "clobTokenIds": '["3"]',
+            "createdAt": "2024-12-20T00:00:00Z",  # Dec 20, 2024 (after Dec 18 end)
+            "closed": False,
+        },
+    ]
+
+    closed_markets = [
+        {
+            "id": "m4",
+            "question": "Resolved during period",
+            "clobTokenIds": '["4"]',
+            "createdAt": "2024-09-01T00:00:00Z",
+            "closed": True,
+            "endDate": "2024-11-01T00:00:00Z",
+        }
+    ]
+
+    async def fake_get(_url: str, params: dict[str, int | bool | str] | None = None):
+        # Return different markets based on which call it is
+        if params and params.get("closed") is False:
+            return active_markets
+        elif params and "end_date_min" in params:
+            return closed_markets
+        return []
+
+    gamma._get = fake_get  # type: ignore[method-assign]
+
+    # Test: Fetch markets from Oct 18 - Dec 18, 2024
+    start_ts = 1729209600000  # Oct 18, 2024
+    end_ts = 1734480000000  # Dec 18, 2024 00:00:00 UTC
+    df = await gamma.fetch_markets(resolved_only=False, start_ts=start_ts, end_ts=end_ts)
+
+    # Should include: m1 (created before, active), m2 (created during, active), m4 (resolved during)
+    # Should exclude: m3 (created after Dec 18)
+    assert df.height == 3, f"Should return 3 markets (m1, m2, m4), got {df.height}"
+    market_ids = df["id"].to_list()
+    assert "m1" in market_ids, "Should include m1 (created before period, still active)"
+    assert "m2" in market_ids, "Should include m2 (created during period, still active)"
+    assert "m4" in market_ids, "Should include m4 (resolved during period)"
+    assert "m3" not in market_ids, "Should exclude m3 (created after period end)"
