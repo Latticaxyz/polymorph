@@ -124,9 +124,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         *[limited(self.clob.fetch_prices_history(tid, interval="all")) for tid in token_ids],
                         return_exceptions=True,
                     )
-                    # TODO: RATE LIMITING - Concurrent token fetching + chunking overwhelms rate limiter
-                    # TODO: Each token may require multiple chunked requests, happening concurrently across tokens
-                    # TODO: Fix rate limiter race condition and consider chunking strategy
 
                 valid_dfs: list[pl.DataFrame] = [df for df in dfs if isinstance(df, pl.DataFrame) and df.height > 0]
                 if valid_dfs:
