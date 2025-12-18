@@ -103,25 +103,33 @@ def version() -> None:
 def fetch(
     ctx: typer.Context,
     minutes: int = typer.Option(
-        0, "--minutes", help="Fetch markets created in the past n minutes (mutually exclusive with other time options)"
+        0,
+        "--minutes",
+        help="Fetch markets active/traded in the past n minutes (mutually exclusive with other time options)",
     ),
     hours: int = typer.Option(
-        0, "--hours", help="Fetch markets created in the past n hours (mutually exclusive with other time options)"
+        0,
+        "--hours",
+        help="Fetch markets active/traded in the past n hours (mutually exclusive with other time options)",
     ),
     days: int = typer.Option(
-        0, "--days", help="Fetch markets created in the past n days (mutually exclusive with other time options)"
+        0, "--days", help="Fetch markets active/traded in the past n days (mutually exclusive with other time options)"
     ),
     weeks: int = typer.Option(
-        0, "--weeks", help="Fetch markets created in the past n weeks (mutually exclusive with other time options)"
+        0,
+        "--weeks",
+        help="Fetch markets active/traded in the past n weeks (mutually exclusive with other time options)",
     ),
     months: int = typer.Option(
         0,
         "--months",
         "-m",
-        help="Fetch markets created in the past n months (mutually exclusive with other time options)",
+        help="Fetch markets active/traded in the past n months (mutually exclusive with other time options)",
     ),
     years: int = typer.Option(
-        0, "--years", help="Fetch markets created in the past n years (mutually exclusive with other time options)"
+        0,
+        "--years",
+        help="Fetch markets active/traded in the past n years (mutually exclusive with other time options)",
     ),
     out: Path = typer.Option(_DEFAULT_DATA_DIR, "--out", help="Root output dir for raw data"),
     include_trades: bool = typer.Option(True, "--trades/--no-trades", help="Include recent trades via Data-API"),
@@ -138,6 +146,11 @@ def fetch(
         _DEFAULT_MAX_CONCURRENCY,
         "--max-concurrency",
         help="Max concurrent HTTP requests (overrides TOML/config for this command)",
+    ),
+    gamma_max_pages: int | None = typer.Option(
+        None,
+        "--gamma-max-pages",
+        help="Max pages to fetch from Gamma API (None = unbounded, 100 records per page)",
     ),
 ) -> None:
     time_params = [minutes, hours, days, weeks, months, years]
@@ -176,6 +189,8 @@ def fetch(
     )
 
     runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
+    if gamma_max_pages is not None:
+        runtime_config.gamma_max_pages = gamma_max_pages
     context = create_context(out, runtime_config=runtime_config)
 
     stage = FetchStage(
