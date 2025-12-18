@@ -88,10 +88,10 @@ class ParquetDuckDBStorage(ParquetStorage):
         return rel.with_suffix("").as_posix().replace("/", ".")
 
     def write(self, df: pl.DataFrame, path: str | Path) -> None:
+        super().write(df, path)
         p = self._resolve_path(path)
-        super().write(df, p)
         try:
-            self.catalog.register(self._dataset_name(p), p, df)
+            self.catalog.register(self._dataset_name(path), p, df)
         except Exception as e:
             logger.warning(f"Failed to register dataset {p} in catalog: {e}", exc_info=True)
 
