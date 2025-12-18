@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 def utc() -> datetime:
@@ -22,6 +22,30 @@ def utc_ms() -> int:
 def months_ago_ms(n: int) -> int:
     dt = months_ago(n)
     return int(dt.timestamp() * 1000)
+
+
+def time_delta_ms(
+    minutes: int = 0,
+    hours: int = 0,
+    days: int = 0,
+    weeks: int = 0,
+    months: int = 0,
+    years: int = 0,
+) -> int:
+    now = utc()
+
+    if months > 0:
+        dt = months_ago(months)
+    else:
+        dt = now
+
+    delta = timedelta(
+        minutes=minutes,
+        hours=hours,
+        days=days + (weeks * 7) + (years * 365),
+    )
+
+    return int((dt - delta).timestamp() * 1000)
 
 
 def datetime_to_ms(dt: datetime) -> int:
