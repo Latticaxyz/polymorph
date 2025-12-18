@@ -78,6 +78,9 @@ def init(
         data_dir=str(data_dir) if data_dir != _DEFAULT_DATA_DIR else None,
     )
 
+    # TODO: BUG - This log shows CLI input values, not effective merged config values
+    # TODO: Should log context.http_timeout and context.max_concurrency after merging with config
+    # TODO: Currently misleading - shows CLI defaults even when config file has different values
     console.log(
         f"polymorph v{__version__} "
         f"(data_dir={data_dir}, timeout={http_timeout}s, max_concurrency={max_concurrency})"
