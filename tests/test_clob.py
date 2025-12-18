@@ -101,6 +101,87 @@ async def test_clob_fetch_price_history_chunking(tmp_path: Path, monkeypatch: py
 
 
 @pytest.mark.asyncio
+async def test_clob_fetch_price_history_with_interval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test fetching price history using interval parameter instead of timestamps."""
+    context = _make_context(tmp_path)
+    clob = CLOB(context)
+
+    t1 = 1577836800000
+    t2 = 1577923200000
+
+    async def fake_get(
+        url: str, params: dict[str, int | str | bool], use_data_api: bool = False
+    ) -> dict[str, list[dict[str, str | int | float]]]:
+        """Mock HTTP GET that returns price data."""
+        _ = use_data_api
+        assert "prices-history" in url
+        assert params["market"] == "YES"
+        assert params["interval"] == "1w"
+        assert params["fidelity"] == 60
+        return {
+            "history": [
+                {"t": t1, "p": "0.3"},
+                {"t": t2, "p": "0.7"},
+            ]
+        }
+
+    monkeypatch.setattr(clob, "_get", fake_get)
+
+    df = await clob.fetch_prices_history("YES", interval="1w", fidelity=60)
+
+    assert df.height == 2
+    assert set(df.columns) >= {"t", "p", "token_id"}
+    assert set(df["token_id"].to_list()) == {"YES"}
+    timestamps = df["t"].to_list()
+    prices = df["p"].to_list()
+    assert timestamps == [t1, t2]
+    assert prices == ["0.3", "0.7"]
+
+
+@pytest.mark.asyncio
+async def test_clob_fetch_price_history_interval_options(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test various interval options (all, max, 1d, 1w, etc.)."""
+    context = _make_context(tmp_path)
+    clob = CLOB(context)
+
+    intervals_tested: list[str] = []
+
+    async def fake_get(
+        url: str, params: dict[str, int | str | bool], use_data_api: bool = False
+    ) -> dict[str, list[dict[str, str | int | float]]]:
+        """Mock HTTP GET that tracks interval values."""
+        _ = use_data_api
+        intervals_tested.append(str(params["interval"]))
+        return {"history": [{"t": 1577836800000, "p": "0.5"}]}
+
+    monkeypatch.setattr(clob, "_get", fake_get)
+
+    test_intervals = ["all", "max", "1d", "1w", "1m"]
+    for interval in test_intervals:
+        await clob.fetch_prices_history("TOKEN", interval=interval)
+
+    assert intervals_tested == test_intervals, "Should test all interval types"
+
+
+@pytest.mark.asyncio
+async def test_clob_fetch_price_history_requires_either_interval_or_timestamps(
+    tmp_path: Path,
+) -> None:
+    """Test that fetch_prices_history requires either interval or timestamps."""
+    context = _make_context(tmp_path)
+    clob = CLOB(context)
+
+    with pytest.raises(ValueError, match="Either 'interval' or both 'start_ts' and 'end_ts' must be provided"):
+        await clob.fetch_prices_history("TOKEN")
+
+    with pytest.raises(ValueError, match="Either 'interval' or both 'start_ts' and 'end_ts' must be provided"):
+        await clob.fetch_prices_history("TOKEN", start_ts=1000000)
+
+    with pytest.raises(ValueError, match="Either 'interval' or both 'start_ts' and 'end_ts' must be provided"):
+        await clob.fetch_prices_history("TOKEN", end_ts=2000000)
+
+
+@pytest.mark.asyncio
 async def test_clob_fetch_trades_parses_created_at_and_filters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that trades are parsed from created_at and filtered by timestamp."""
     context = _make_context(tmp_path)
