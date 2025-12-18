@@ -44,15 +44,15 @@ class RateLimiter:
                 sleep_time = (wait_until - now).total_seconds()
 
                 if sleep_time > 0:
-                    logger.debug(
+                    logger.warning(
                         f"RateLimiter '{self.name}': at limit "
                         f"({len(self.requests)}/{self.max_requests}), "
-                        f"sleeping {sleep_time:.2f}s"
+                        f"raising RateLimitError"
                     )
-                    await asyncio.sleep(sleep_time + 0.1)
-
-                    now = datetime.now()
-                    self._cleanup_old_requests(now)
+                    raise RateLimitError(
+                        f"Rate limit exceeded for '{self.name}': "
+                        f"{self.max_requests} requests per {self.time_window.total_seconds()}s"
+                    )
 
         self.requests.append(now)
 
