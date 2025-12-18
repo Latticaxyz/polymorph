@@ -7,6 +7,7 @@ import pytest
 
 from polymorph.config import config as base_config
 from polymorph.core.base import PipelineContext, RuntimeConfig
+from polymorph.models.api import OrderBook, OrderBookLevel
 from polymorph.models.pipeline import FetchResult
 from polymorph.pipeline.fetch import FetchStage
 from polymorph.pipeline.process import ProcessStage
@@ -88,6 +89,20 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
                     "p": ["0.4", "0.6"],  # Prices are strings per API spec
                     "token_id": [token_id, token_id],
                 }
+            )
+
+        async def fetch_orderbook(self, token_id: str) -> OrderBook:
+            """Fetch orderbook for a single token."""
+            self.orderbook_calls.append(token_id)
+            return OrderBook(
+                token_id=token_id,
+                timestamp=1704067200000,  # Valid timestamp in milliseconds (Jan 1, 2024)
+                bids=[OrderBookLevel(price="0.4", size="10.0")],
+                asks=[OrderBookLevel(price="0.6", size="5.0")],
+                best_bid=0.4,
+                best_ask=0.6,
+                mid_price=0.5,
+                spread=0.2,
             )
 
         async def fetch_orderbooks(self, token_ids: list[str]) -> pl.DataFrame:
