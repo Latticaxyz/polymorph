@@ -34,7 +34,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
         include_spreads: bool = False,
         resolved_only: bool = False,
         max_concurrency: int | None = None,
-        full_price_history: bool = False,
     ):
         super().__init__(context)
         self.minutes = minutes
@@ -50,7 +49,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
         self.include_spreads = include_spreads
         self.resolved_only = resolved_only
         self.max_concurrency = max_concurrency or context.max_concurrency
-        self.full_price_history = full_price_history
 
         self.storage = context.storage
         self.gamma = Gamma(context)
@@ -96,7 +94,9 @@ class FetchStage(PipelineStage[None, FetchResult]):
             if self.include_gamma:
                 progress.update(task, advance=1, description="gamma markets")
                 async with self.gamma:
-                    markets_df = await self.gamma.fetch_markets(resolved_only=self.resolved_only)
+                    markets_df = await self.gamma.fetch_markets(
+                        resolved_only=self.resolved_only, start_ts=start_ts, end_ts=end_ts
+                    )
 
                 if markets_df.height > 0:
                     markets_df = markets_df.with_columns(
@@ -119,16 +119,10 @@ class FetchStage(PipelineStage[None, FetchResult]):
             if self.include_prices and token_ids:
                 progress.update(task, advance=1, description="prices")
                 async with self.clob:
-                    if self.full_price_history:
-                        dfs = await asyncio.gather(
-                            *[limited(self.clob.fetch_prices_history(tid, interval="all")) for tid in token_ids],
-                            return_exceptions=True,
-                        )
-                    else:
-                        dfs = await asyncio.gather(
-                            *[limited(self.clob.fetch_prices_history(tid, start_ts, end_ts)) for tid in token_ids],
-                            return_exceptions=True,
-                        )
+                    dfs = await asyncio.gather(
+                        *[limited(self.clob.fetch_prices_history(tid, interval="all")) for tid in token_ids],
+                        return_exceptions=True,
+                    )
 
                 valid_dfs: list[pl.DataFrame] = [df for df in dfs if isinstance(df, pl.DataFrame) and df.height > 0]
                 if valid_dfs:
