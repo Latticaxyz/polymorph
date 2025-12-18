@@ -26,7 +26,6 @@ async def test_rate_limiter_singleton_instances() -> None:
 @pytest.mark.asyncio
 async def test_rate_limiter_throttles_requests() -> None:
     """Test that rate limiter enforces limits by sleeping when exceeded."""
-    import asyncio
     import time
 
     limiter = await RateLimiter.get_instance("test-throttle", max_requests=2, time_window_seconds=0.2)
