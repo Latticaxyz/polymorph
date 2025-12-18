@@ -32,12 +32,12 @@ class Gamma(DataSource[pl.DataFrame]):
         self,
         context: PipelineContext,
         base_url: str = GAMMA_BASE,
-        max_pages: int = 250,
+        max_pages: int | None = None,
         page_size: int = 100,
     ):
         super().__init__(context)
         self.base_url = base_url
-        self.max_pages = max_pages
+        self.max_pages = max_pages if max_pages is not None else context.config.general.gamma_max_pages
         self.page_size = page_size
         self._client: httpx.AsyncClient | None = None
         self._rate_limiter: RateLimiter | None = None
@@ -96,27 +96,31 @@ class Gamma(DataSource[pl.DataFrame]):
         resp.raise_for_status()
         return cast(JsonValue, resp.json())
 
-    @with_retry()
-    async def fetch_markets(
-        self, *, resolved_only: bool = False, start_ts: int | None = None, end_ts: int | None = None
-    ) -> pl.DataFrame:
+    async def _fetch_markets_with_params(self, params: dict[str, str | int | float | bool]) -> list[Market]:
         markets: list[Market] = []
+        page = 1
 
-        for page in range(1, self.max_pages + 1):
-            params: dict[str, str | int | float | bool] = {
+        while True:
+            if self.max_pages is not None and page > self.max_pages:
+                break
+
+            page_params = {
+                **params,
                 "limit": self.page_size,
                 "offset": (page - 1) * self.page_size,
             }
 
             url = f"{self.base_url}/markets"
-            data = await self._get(url, params=params)
+            data = await self._get(url, params=page_params)
 
-            # Gamma API returns array directly (NOT wrapped in {"markets": [...]})
+            # Gamma API returns array directly
             if not isinstance(data, list):
                 raise ValueError(f"Expected list response from Gamma API, got {type(data).__name__}")
 
             if not data:
                 break
+
+            page += 1
 
             for item in data:
                 if not isinstance(item, dict):
@@ -145,33 +149,90 @@ class Gamma(DataSource[pl.DataFrame]):
                     logger.warning(f"Failed to parse market {item.get('id', 'unknown')}: {e}")
                     continue
 
-                # Filter by resolved_only if requested
-                if resolved_only and market.resolved is not True:
-                    continue
+                markets.append(market)
 
-                # Filter by time range if requested
-                if start_ts is not None or end_ts is not None:
-                    if market.created_at is None:
-                        continue
+        return markets
 
-                    from datetime import datetime
+    @with_retry()
+    async def fetch_markets(
+        self, *, resolved_only: bool = False, start_ts: int | None = None, end_ts: int | None = None
+    ) -> pl.DataFrame:
+        from datetime import datetime, timezone
 
+        markets: list[Market] = []
+
+        start_date = None
+        end_date = None
+        if start_ts is not None:
+            start_date = datetime.fromtimestamp(start_ts / 1000, tz=timezone.utc).isoformat()
+        if end_ts is not None:
+            end_date = datetime.fromtimestamp(end_ts / 1000, tz=timezone.utc).isoformat()
+
+        # Fetch both active markets AND markets that ended during the period
+        # Ensures we get markets that were "in existence" during the time range
+
+        # Fetch active markets (not closed yet)
+        logger.info("Fetching active markets...")
+        active_params: dict[str, str | int | float | bool] = {"closed": False}
+        active_markets = await self._fetch_markets_with_params(active_params)
+
+        # Filter active markets by creation date
+        # API doesn't support created_at_max parameter
+        if end_ts is not None:
+            filtered_count = 0
+            filtered_active = []
+            for market in active_markets:
+                if market.created_at:
                     try:
                         created_dt = datetime.fromisoformat(market.created_at.replace("Z", "+00:00"))
                         created_ms = int(created_dt.timestamp() * 1000)
+                        if created_ms <= end_ts:
+                            filtered_active.append(market)
+                        else:
+                            filtered_count += 1
+                    except (ValueError, AttributeError):
+                        # Include markets with invalid created_at to be safe
+                        filtered_active.append(market)
+                else:
+                    filtered_active.append(market)
 
-                        if start_ts is not None and created_ms < start_ts:
-                            continue
-                        if end_ts is not None and created_ms > end_ts:
-                            continue
-                    except (ValueError, AttributeError) as e:
-                        logger.warning(f"Skipping market {market.id}: invalid created_at '{market.created_at}' - {e}")
-                        continue
+            active_markets = filtered_active
+            if filtered_count > 0:
+                logger.info(f"Filtered out {filtered_count} active markets created after time period")
 
-                markets.append(market)
+        markets.extend(active_markets)
+        logger.info(f"Fetched {len(active_markets)} active markets")
+
+        # Fetch markets that ended during the time period
+        if start_date is not None and end_date is not None:
+            logger.info(f"Fetching markets that ended between {start_date} and {end_date}...")
+            closed_params: dict[str, str | int | float | bool] = {
+                "end_date_min": start_date,
+                "end_date_max": end_date,
+            }
+            closed_markets = await self._fetch_markets_with_params(closed_params)
+            markets.extend(closed_markets)
+            logger.info(f"Fetched {len(closed_markets)} closed markets")
+
+        # Deduplicate markets (overlap between active and closed sets)
+        # Happens when markets transition from active to closed
+        seen_ids: set[str] = set()
+        unique_markets: list[Market] = []
+        for market in markets:
+            if market.id not in seen_ids:
+                seen_ids.add(market.id)
+                unique_markets.append(market)
+
+        if len(markets) != len(unique_markets):
+            logger.info(f"Removed {len(markets) - len(unique_markets)} duplicate markets")
+
+        markets = unique_markets
+        logger.info(f"Total unique markets: {len(markets)}")
+
+        if resolved_only:
+            markets = [m for m in markets if m.resolved is True]
 
         if not markets:
-            # Return empty DataFrame with full schema
             return pl.DataFrame(
                 schema={
                     "id": pl.Utf8,
