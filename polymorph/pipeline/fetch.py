@@ -1,11 +1,12 @@
 import asyncio
 from pathlib import Path
-from typing import Any, Coroutine, TypeVar
+from typing import Awaitable, TypeVar
 
 import polars as pl
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from polymorph.core.base import PipelineContext, PipelineStage
+from polymorph.models.api import OrderBook
 from polymorph.models.pipeline import FetchResult
 from polymorph.sources.clob import CLOB
 from polymorph.sources.gamma import Gamma
@@ -76,7 +77,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
         result = FetchResult(run_timestamp=self.context.run_timestamp)
         sem = asyncio.Semaphore(self.max_concurrency)
 
-        async def limited(coro: Coroutine[Any, Any, T]) -> T:
+        async def limited(coro: Awaitable[T]) -> T:
             async with sem:
                 return await coro
 
@@ -123,6 +124,9 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         *[limited(self.clob.fetch_prices_history(tid, interval="all")) for tid in token_ids],
                         return_exceptions=True,
                     )
+                    # TODO: RATE LIMITING - Concurrent token fetching + chunking overwhelms rate limiter
+                    # TODO: Each token may require multiple chunked requests, happening concurrently across tokens
+                    # TODO: Fix rate limiter race condition and consider chunking strategy
 
                 valid_dfs: list[pl.DataFrame] = [df for df in dfs if isinstance(df, pl.DataFrame) and df.height > 0]
                 if valid_dfs:
@@ -142,9 +146,43 @@ class FetchStage(PipelineStage[None, FetchResult]):
             if self.include_orderbooks and token_ids:
                 progress.update(task, advance=1, description="orderbooks")
                 async with self.clob:
-                    df = await self.clob.fetch_orderbooks(token_ids)
+                    orderbook_results = await asyncio.gather(
+                        *[limited(self.clob.fetch_orderbook(tid)) for tid in token_ids],
+                        return_exceptions=True,
+                    )
 
-                if df.height > 0:
+                orderbook_rows: list[dict[str, object]] = []
+                for result_item in orderbook_results:
+                    if isinstance(result_item, Exception):
+                        logger.warning(f"Failed to fetch orderbook: {result_item}")
+                        continue
+                    if not isinstance(result_item, OrderBook):
+                        continue
+
+                    ob = result_item
+                    for level in ob.bids:
+                        orderbook_rows.append(
+                            {
+                                "token_id": ob.token_id,
+                                "timestamp": ob.timestamp,
+                                "side": "bid",
+                                "price": level.price,
+                                "size": level.size,
+                            }
+                        )
+                    for level in ob.asks:
+                        orderbook_rows.append(
+                            {
+                                "token_id": ob.token_id,
+                                "timestamp": ob.timestamp,
+                                "side": "ask",
+                                "price": level.price,
+                                "size": level.size,
+                            }
+                        )
+
+                if orderbook_rows:
+                    df = pl.DataFrame(orderbook_rows)
                     df = df.with_columns(
                         [
                             pl.lit("clob.polymarket.com").alias("_source_api"),
@@ -160,12 +198,12 @@ class FetchStage(PipelineStage[None, FetchResult]):
             if self.include_spreads and token_ids:
                 progress.update(task, advance=1, description="spreads")
                 async with self.clob:
-                    rows = await asyncio.gather(
+                    spread_results = await asyncio.gather(
                         *[limited(self.clob.fetch_spread(tid)) for tid in token_ids],
                         return_exceptions=True,
                     )
 
-                rows = [r for r in rows if isinstance(r, dict)]
+                rows: list[dict[str, str | float | int | None]] = [r for r in spread_results if isinstance(r, dict)]
                 if rows:
                     df = pl.DataFrame(rows)
                     df = df.with_columns(

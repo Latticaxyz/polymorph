@@ -8,12 +8,6 @@ from polymorph.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-# TODO: ARCHITECTURE - Current design raises RateLimitError which triggers retry with exponential backoff
-# TODO: This is inefficient compared to just sleeping when rate limit is reached
-# TODO: Consider redesigning to use asyncio.sleep() instead of raise/retry pattern
-# TODO: Would eliminate unnecessary exception handling overhead and make timing more predictable
-
-
 class RateLimiter:
     _instances: ClassVar[dict[str, "RateLimiter"]] = {}
     _lock: ClassVar[asyncio.Lock] = asyncio.Lock()
@@ -40,31 +34,30 @@ class RateLimiter:
             self.requests.popleft()
 
     async def acquire(self) -> None:
-        # TODO: CRITICAL BUG - Race condition! self.requests.append(now) is outside the lock
-        # TODO: Multiple concurrent requests can all pass the limit check, then all append to queue
-        # TODO: Fix by moving append inside the lock OR redesign to use asyncio.sleep instead of raising
-        # TODO: Consider replacing exception-based design with sleep-based waiting for better efficiency
         async with self._instance_lock:
-            now = datetime.now()
-            self._cleanup_old_requests(now)
+            while True:
+                now = datetime.now()
+                self._cleanup_old_requests(now)
 
-            if len(self.requests) >= self.max_requests:
+                if len(self.requests) < self.max_requests:
+                    self.requests.append(now)
+                    return
+
                 oldest = self.requests[0]
                 wait_until = oldest + self.time_window
                 sleep_time = (wait_until - now).total_seconds()
 
                 if sleep_time > 0:
-                    logger.warning(
+                    logger.debug(
                         f"RateLimiter '{self.name}': at limit "
                         f"({len(self.requests)}/{self.max_requests}), "
-                        f"raising RateLimitError"
+                        f"sleeping for {sleep_time:.2f}s"
                     )
-                    raise RateLimitError(
-                        f"Rate limit exceeded for '{self.name}': "
-                        f"{self.max_requests} requests per {self.time_window.total_seconds()}s"
-                    )
-
-        self.requests.append(now)  # TODO: MOVE THIS INSIDE THE LOCK ABOVE!
+                    self._instance_lock.release()
+                    try:
+                        await asyncio.sleep(sleep_time)
+                    finally:
+                        await self._instance_lock.acquire()
 
     def get_stats(self) -> dict[str, object]:
         now = datetime.now()
