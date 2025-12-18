@@ -20,12 +20,14 @@ class RuntimeConfig:
     http_timeout: int | None = None
     max_concurrency: int | None = None
     data_dir: str | None = None
+    gamma_max_pages: int | None = None
 
     def merge_with(self, base: Config) -> "RuntimeConfig":
         return RuntimeConfig(
             http_timeout=self.http_timeout if self.http_timeout is not None else base.general.http_timeout,
             max_concurrency=self.max_concurrency if self.max_concurrency is not None else base.general.max_concurrency,
             data_dir=self.data_dir if self.data_dir is not None else base.general.data_dir,
+            gamma_max_pages=self.gamma_max_pages if self.gamma_max_pages is not None else base.general.gamma_max_pages,
         )
 
 
