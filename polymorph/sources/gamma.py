@@ -60,6 +60,9 @@ class Gamma(DataSource[pl.DataFrame]):
             self._client = httpx.AsyncClient(
                 timeout=self.context.http_timeout,
                 http2=True,
+                headers={
+                    "User-Agent": "polymorph/0.2.1 (httpx; +https://github.com/lattica/polymorph)",
+                },
             )
         return self._client
 
