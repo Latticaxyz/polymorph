@@ -16,6 +16,7 @@ class GeneralConfig(BaseModel):
     http_timeout: int = 30
     max_concurrency: int = 8
     data_dir: str = "data"
+    gamma_max_pages: int | None = None
 
 
 class StorageConfig(BaseModel):
@@ -65,6 +66,7 @@ def _ensure_config_exists() -> None:
 http_timeout = 30
 max_concurrency = 8
 data_dir = "data"
+# gamma_max_pages = 1000  # Uncomment to limit Gamma API fetches (1000 pages × 100 records = 100k max per call)
 
 [storage]
 # backend:
