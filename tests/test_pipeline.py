@@ -34,7 +34,9 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
         async def __aexit__(self, _exc_type, _exc, _tb) -> None:
             return None
 
-        async def fetch_markets(self, *, resolved_only: bool = False) -> pl.DataFrame:
+        async def fetch_markets(
+            self, *, resolved_only: bool = False, start_ts: int | None = None, end_ts: int | None = None
+        ) -> pl.DataFrame:
             return pl.DataFrame(
                 {
                     "id": ["m1", "m2"],
@@ -73,14 +75,16 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
         async def fetch_prices_history(
             self,
             token_id: str,
-            start_ts: int,
-            end_ts: int,
+            start_ts: int | None = None,
+            end_ts: int | None = None,
+            interval: str | None = None,
             fidelity: int | None = None,
         ) -> pl.DataFrame:
             self.price_calls.append(token_id)
+            # Always return sample data regardless of parameters
             return pl.DataFrame(
                 {
-                    "t": [start_ts, end_ts],
+                    "t": [1704067200000, 1704153600000],  # Sample timestamps
                     "p": ["0.4", "0.6"],  # Prices are strings per API spec
                     "token_id": [token_id, token_id],
                 }
