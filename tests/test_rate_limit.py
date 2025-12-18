@@ -25,16 +25,19 @@ async def test_rate_limiter_singleton_instances() -> None:
 
 @pytest.mark.asyncio
 async def test_rate_limiter_throttles_requests() -> None:
+    """Test that rate limiter enforces limits by raising RateLimitError."""
     limiter = await RateLimiter.get_instance("test-throttle", max_requests=2, time_window_seconds=0.1)
 
     await limiter.acquire()
     await limiter.acquire()
-    await limiter.acquire()
+
+    with pytest.raises(RateLimitError):
+        await limiter.acquire()
 
     stats = limiter.get_stats()
     current = cast(int, stats["current_count"])
     max_requests = cast(int, stats["max_requests"])
-    assert current <= max_requests
+    assert current == max_requests
 
 
 @pytest.mark.asyncio
@@ -64,3 +67,60 @@ async def test_with_retry_does_not_retry_on_client_error() -> None:
 
     with pytest.raises(httpx.HTTPStatusError):
         await always_400()
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_raises_when_limit_exceeded() -> None:
+    """Test that rate limiter raises RateLimitError when limit is exceeded."""
+    limiter = await RateLimiter.get_instance(
+        "test-raises",
+        max_requests=2,
+        time_window_seconds=10.0,
+    )
+
+    await limiter.acquire()
+    await limiter.acquire()
+
+    with pytest.raises(RateLimitError):
+        await limiter.acquire()
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_doesnt_raise_when_within_limits() -> None:
+    """Test that rate limiter doesn't raise when within request limits."""
+    limiter = await RateLimiter.get_instance(
+        "test-no-raise",
+        max_requests=5,
+        time_window_seconds=1.0,
+    )
+
+    for _ in range(3):
+        await limiter.acquire()
+
+    stats = limiter.get_stats()
+    current = cast(int, stats["current_count"])
+    assert current == 3
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_sliding_window_behavior() -> None:
+    """Test that rate limiter sliding window allows requests after window expires."""
+    import asyncio
+
+    limiter = await RateLimiter.get_instance(
+        "test-sliding",
+        max_requests=2,
+        time_window_seconds=0.2,
+    )
+
+    await limiter.acquire()
+    await limiter.acquire()
+
+    await asyncio.sleep(0.25)
+
+    await limiter.acquire()
+    await limiter.acquire()
+
+    stats = limiter.get_stats()
+    current = cast(int, stats["current_count"])
+    assert current == 2
