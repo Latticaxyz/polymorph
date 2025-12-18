@@ -132,13 +132,12 @@ class CLOB(DataSource[pl.DataFrame]):
         params: dict[str, str | int | float | bool] = {
             "market": token_id,  # API requires 'market' not 'token_id'
             "startTs": start_ts,  # Send milliseconds directly
-            "endTs": end_ts,  # Send milliseconds directly
+            "endTs": end_ts,
             "fidelity": fidelity,  # Fidelity is in seconds
         }
 
         data = await self._get(url, params=params, use_data_api=False)
 
-        # Strict response validation
         if not isinstance(data, dict):
             raise ValueError(f"Expected dict response, got {type(data).__name__}")
 
@@ -160,7 +159,6 @@ class CLOB(DataSource[pl.DataFrame]):
             if "t" not in item or "p" not in item:
                 raise ValueError(f"History item missing required fields: {item}")
 
-            # Parse strictly using our parsers
             # API returns timestamps in seconds, convert to milliseconds
             t_seconds = item["t"]
             if isinstance(t_seconds, (int, float)):
@@ -191,7 +189,6 @@ class CLOB(DataSource[pl.DataFrame]):
 
         data = await self._get(url, params=params, use_data_api=False)
 
-        # Strict response validation
         if not isinstance(data, dict):
             raise ValueError(f"Expected dict response, got {type(data).__name__}")
 
@@ -213,7 +210,6 @@ class CLOB(DataSource[pl.DataFrame]):
             if "t" not in item or "p" not in item:
                 raise ValueError(f"History item missing required fields: {item}")
 
-            # Parse strictly using our parsers
             # API returns timestamps in seconds, convert to milliseconds
             t_seconds = item["t"]
             if isinstance(t_seconds, (int, float)):
@@ -231,8 +227,8 @@ class CLOB(DataSource[pl.DataFrame]):
     async def fetch_prices_history(
         self,
         token_id: str,
-        start_ts: int | None = None,  # Unix milliseconds (optional)
-        end_ts: int | None = None,  # Unix milliseconds (optional)
+        start_ts: int | None = None,  # Unix milliseconds
+        end_ts: int | None = None,  # Unix milliseconds
         fidelity: int | None = None,
         interval: str | None = None,  # 'all', 'max', '1d', '1w', etc. (mutually exclusive with start_ts/end_ts)
     ) -> pl.DataFrame:
@@ -246,15 +242,11 @@ class CLOB(DataSource[pl.DataFrame]):
         if start_ts is None or end_ts is None:
             raise ValueError("Either 'interval' or both 'start_ts' and 'end_ts' must be provided")
 
-        # TODO: RATE LIMITING ISSUE - Chunking loop makes sequential requests without delay
-        # TODO: Combined with concurrent token fetching, this overwhelms the rate limiter
-        # TODO: Consider adding small delay between chunks or redesigning chunking strategy
-        # TODO: Race condition in rate limiter (see rate_limit.py) makes this worse
+        # Chunk the date range to respect API's 14-day limit
         results: list[pl.DataFrame] = []
         current_start = start_ts
 
         while current_start < end_ts:
-            # Chunk in milliseconds
             current_end = min(current_start + CLOB_MAX_PRICE_HISTORY_MS, end_ts)
             df = await self._fetch_price_history_chunk(token_id, current_start, current_end, fidelity)
             if df.height > 0:
@@ -280,7 +272,6 @@ class CLOB(DataSource[pl.DataFrame]):
 
         data = await self._get(url, params=params, use_data_api=False)
 
-        # Strict validation
         if not isinstance(data, dict):
             raise ValueError(f"Expected dict response, got {type(data).__name__}")
 
@@ -293,51 +284,44 @@ class CLOB(DataSource[pl.DataFrame]):
         if not isinstance(bids_data, list) or not isinstance(asks_data, list):
             raise ValueError("bids and asks must be lists")
 
-        # Parse bids
         bids: list[OrderBookLevel] = []
         for level in bids_data:
             if not isinstance(level, dict):
-                continue  # Skip non-dict entries
+                continue
             if "price" not in level or "size" not in level:
-                continue  # Skip entries missing required fields
+                continue
 
             try:
                 bids.append(
                     OrderBookLevel(price=parse_decimal_string(level["price"]), size=parse_decimal_string(level["size"]))
                 )
             except (ValueError, TypeError):
-                # Skip entries with invalid price/size values
                 continue
 
-        # Parse asks
         asks: list[OrderBookLevel] = []
         for level in asks_data:
             if not isinstance(level, dict):
-                continue  # Skip non-dict entries
+                continue
             if "price" not in level or "size" not in level:
-                continue  # Skip entries missing required fields
+                continue
 
             try:
                 asks.append(
                     OrderBookLevel(price=parse_decimal_string(level["price"]), size=parse_decimal_string(level["size"]))
                 )
             except (ValueError, TypeError):
-                # Skip entries with invalid price/size values
                 continue
 
         # Sort by price (convert to float for comparison)
         bids = sorted(bids, key=lambda x: float(x.price), reverse=True)
         asks = sorted(asks, key=lambda x: float(x.price))
 
-        # Calculate best bid/ask from sorted levels
         best_bid = float(bids[0].price) if bids else None
         best_ask = float(asks[0].price) if asks else None
 
-        # Parse timestamp in milliseconds
         try:
             timestamp = parse_timestamp_ms(data.get("timestamp", 0))
         except (ValueError, TypeError):
-            # Default to 0 for invalid/missing timestamps
             timestamp = 0
 
         ob = OrderBook(
@@ -353,9 +337,6 @@ class CLOB(DataSource[pl.DataFrame]):
         return ob
 
     async def fetch_orderbooks(self, token_ids: list[str]) -> pl.DataFrame:
-        # TODO: PERFORMANCE - This fetches orderbooks sequentially (one at a time)
-        # TODO: Change to use asyncio.gather with semaphore for concurrent fetching
-        # TODO: Should respect max_concurrency setting like price history does
         rows: list[dict[str, object]] = []
 
         for token_id in token_ids:
@@ -420,7 +401,7 @@ class CLOB(DataSource[pl.DataFrame]):
         if isinstance(data, list):
             return cast(list[dict[str, str | int | float]], [x for x in data if isinstance(x, dict)])
 
-        # Fallback: handle wrapped format if API changes
+        # Fallback: handle wrapped format
         if isinstance(data, dict):
             data_list = data.get("data")
             if isinstance(data_list, list):
@@ -454,7 +435,6 @@ class CLOB(DataSource[pl.DataFrame]):
                 break
 
         if not rows:
-            # Schema matches actual Data API response types
             # Note: API returns price/size as numbers, not strings
             schema = {
                 "id": pl.Utf8,
@@ -469,19 +449,16 @@ class CLOB(DataSource[pl.DataFrame]):
 
         df = pl.DataFrame(rows)
 
-        # Convert price/size to strings for decimal precision (if present)
         if "price" in df.columns:
             df = df.with_columns(pl.col("price").cast(pl.Utf8).alias("price"))
         if "size" in df.columns:
             df = df.with_columns(pl.col("size").cast(pl.Utf8).alias("size"))
 
-        # Ensure timestamp is Int64 milliseconds
         if "timestamp" in df.columns:
             df = df.with_columns(pl.col("timestamp").cast(pl.Int64))
         else:
             raise ValueError("Trades data missing required 'timestamp' field")
 
-        # Filter by timestamp if provided (milliseconds)
         if since_ts is not None:
             df = df.filter(pl.col("timestamp") >= since_ts)
 
