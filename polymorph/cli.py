@@ -99,25 +99,77 @@ def version() -> None:
 @app.command(help="Fetch and store Gamma & CLOB API data")
 def fetch(
     ctx: typer.Context,
-    months: int = typer.Option(1, "--months", "-m", help="Number of months to backfill"),
+    minutes: int = typer.Option(
+        0, "--minutes", help="Number of minutes to backfill (mutually exclusive with other time options)"
+    ),
+    hours: int = typer.Option(
+        0, "--hours", help="Number of hours to backfill (mutually exclusive with other time options)"
+    ),
+    days: int = typer.Option(
+        0, "--days", help="Number of days to backfill (mutually exclusive with other time options)"
+    ),
+    weeks: int = typer.Option(
+        0, "--weeks", help="Number of weeks to backfill (mutually exclusive with other time options)"
+    ),
+    months: int = typer.Option(
+        0, "--months", "-m", help="Number of months to backfill (mutually exclusive with other time options)"
+    ),
+    years: int = typer.Option(
+        0, "--years", help="Number of years to backfill (mutually exclusive with other time options)"
+    ),
     out: Path = typer.Option(_DEFAULT_DATA_DIR, "--out", help="Root output dir for raw data"),
     include_trades: bool = typer.Option(True, "--trades/--no-trades", help="Include recent trades via Data-API"),
     include_prices: bool = typer.Option(True, "--prices/--no-prices", help="Include price history via CLOB"),
     include_gamma: bool = typer.Option(True, "--gamma/--no-gamma", help="Include Gamma markets snapshot"),
-    include_orderbooks: bool = typer.Option(False, "--orderbooks/--no-orderbooks", help="Include orderbooks via CLOB"),
-    include_spreads: bool = typer.Option(False, "--spreads/--no-spreads", help="Include spreads via CLOB"),
+    include_orderbooks: bool = typer.Option(
+        False, "--orderbooks/--no-orderbooks", help="Include current orderbook snapshots (not historical)"
+    ),
+    include_spreads: bool = typer.Option(
+        False, "--spreads/--no-spreads", help="Include current spread snapshots (not historical)"
+    ),
     resolved_only: bool = typer.Option(False, "--resolved-only", help="Gamma: only resolved markets"),
+    full_history: bool = typer.Option(
+        False, "--full-history", help="Fetch complete price history (all available data)"
+    ),
     max_concurrency: int = typer.Option(
         _DEFAULT_MAX_CONCURRENCY,
         "--max-concurrency",
         help="Max concurrent HTTP requests (overrides TOML/config for this command)",
     ),
 ) -> None:
+    time_params = [minutes, hours, days, weeks, months, years]
+    time_param_count = sum(1 for p in time_params if p > 0)
+
+    if time_param_count > 1:
+        console.print("[red]Error: Only one time period parameter can be specified at a time.[/red]")
+        raise typer.Exit(1)
+
+    if time_param_count == 0:
+        months = 1
+
+    time_period_str = (
+        f"{minutes} minutes"
+        if minutes > 0
+        else (
+            f"{hours} hours"
+            if hours > 0
+            else (
+                f"{days} days"
+                if days > 0
+                else (
+                    f"{weeks} weeks"
+                    if weeks > 0
+                    else f"{months} months" if months > 0 else f"{years} years" if years > 0 else "1 month (default)"
+                )
+            )
+        )
+    )
+
     console.log(
-        f"months={months}, out={out}, gamma={include_gamma}, "
+        f"time_period={time_period_str}, out={out}, gamma={include_gamma}, "
         f"prices={include_prices}, trades={include_trades}, "
         f"order_books={include_orderbooks}, spreads={include_spreads}, "
-        f"resolved_only={resolved_only}"
+        f"resolved_only={resolved_only}, full_history={full_history}"
     )
 
     runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
@@ -125,7 +177,12 @@ def fetch(
 
     stage = FetchStage(
         context=context,
-        n_months=months,
+        minutes=minutes,
+        hours=hours,
+        days=days,
+        weeks=weeks,
+        months=months,
+        years=years,
         include_gamma=include_gamma,
         include_prices=include_prices,
         include_trades=include_trades,
@@ -133,6 +190,7 @@ def fetch(
         include_spreads=include_spreads,
         resolved_only=resolved_only,
         max_concurrency=max_concurrency,
+        full_price_history=full_history,
     )
 
     asyncio.run(stage.execute())

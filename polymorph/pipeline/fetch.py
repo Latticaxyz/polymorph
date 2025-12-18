@@ -10,7 +10,7 @@ from polymorph.models.pipeline import FetchResult
 from polymorph.sources.clob import CLOB
 from polymorph.sources.gamma import Gamma
 from polymorph.utils.logging import get_logger
-from polymorph.utils.time import datetime_to_ms, months_ago_ms, utc
+from polymorph.utils.time import datetime_to_ms, time_delta_ms, utc
 
 T = TypeVar("T")
 
@@ -21,7 +21,12 @@ class FetchStage(PipelineStage[None, FetchResult]):
     def __init__(
         self,
         context: PipelineContext,
-        n_months: int = 1,
+        minutes: int = 0,
+        hours: int = 0,
+        days: int = 0,
+        weeks: int = 0,
+        months: int = 0,
+        years: int = 0,
         include_gamma: bool = True,
         include_prices: bool = True,
         include_trades: bool = True,
@@ -29,9 +34,15 @@ class FetchStage(PipelineStage[None, FetchResult]):
         include_spreads: bool = False,
         resolved_only: bool = False,
         max_concurrency: int | None = None,
+        full_price_history: bool = False,
     ):
         super().__init__(context)
-        self.n_months = n_months
+        self.minutes = minutes
+        self.hours = hours
+        self.days = days
+        self.weeks = weeks
+        self.months = months
+        self.years = years
         self.include_gamma = include_gamma
         self.include_prices = include_prices
         self.include_trades = include_trades
@@ -39,6 +50,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
         self.include_spreads = include_spreads
         self.resolved_only = resolved_only
         self.max_concurrency = max_concurrency or context.max_concurrency
+        self.full_price_history = full_price_history
 
         self.storage = context.storage
         self.gamma = Gamma(context)
@@ -52,7 +64,14 @@ class FetchStage(PipelineStage[None, FetchResult]):
         return self.context.run_timestamp.strftime("%Y%m%dT%H%M%SZ")
 
     async def execute(self, _input: None = None) -> FetchResult:
-        start_ts = months_ago_ms(self.n_months)
+        start_ts = time_delta_ms(
+            minutes=self.minutes,
+            hours=self.hours,
+            days=self.days,
+            weeks=self.weeks,
+            months=self.months,
+            years=self.years,
+        )
         end_ts = datetime_to_ms(utc())
         stamp = self._stamp()
 
@@ -100,10 +119,16 @@ class FetchStage(PipelineStage[None, FetchResult]):
             if self.include_prices and token_ids:
                 progress.update(task, advance=1, description="prices")
                 async with self.clob:
-                    dfs = await asyncio.gather(
-                        *[limited(self.clob.fetch_prices_history(tid, start_ts, end_ts)) for tid in token_ids],
-                        return_exceptions=True,
-                    )
+                    if self.full_price_history:
+                        dfs = await asyncio.gather(
+                            *[limited(self.clob.fetch_prices_history(tid, interval="all")) for tid in token_ids],
+                            return_exceptions=True,
+                        )
+                    else:
+                        dfs = await asyncio.gather(
+                            *[limited(self.clob.fetch_prices_history(tid, start_ts, end_ts)) for tid in token_ids],
+                            return_exceptions=True,
+                        )
 
                 valid_dfs: list[pl.DataFrame] = [df for df in dfs if isinstance(df, pl.DataFrame) and df.height > 0]
                 if valid_dfs:
