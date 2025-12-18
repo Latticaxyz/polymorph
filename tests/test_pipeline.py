@@ -124,7 +124,7 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
 
     fetch_stage = FetchStage(
         context,
-        n_months=1,
+        months=1,
         include_gamma=True,
         include_prices=True,
         include_trades=True,
