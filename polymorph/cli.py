@@ -178,17 +178,22 @@ def fetch(
         )
     )
 
+    runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
+    if gamma_max_pages is not None:
+        runtime_config.gamma_max_pages = gamma_max_pages
+
+    effective_max_concurrency = max_concurrency
+    if max_concurrency == _DEFAULT_MAX_CONCURRENCY and runtime_config.max_concurrency is not None:
+        effective_max_concurrency = runtime_config.max_concurrency
+
     console.log(
         f"time_period={time_period_str}, out={out}, gamma={include_gamma}, "
         f"prices={include_prices}, trades={include_trades}, "
         f"order_books={include_orderbooks}, spreads={include_spreads}, "
-        f"resolved_only={resolved_only}, max_concurrency={max_concurrency}, "
+        f"resolved_only={resolved_only}, max_concurrency={effective_max_concurrency}, "
         f"gamma_max_pages={gamma_max_pages}"
     )
 
-    runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
-    if gamma_max_pages is not None:
-        runtime_config.gamma_max_pages = gamma_max_pages
     context = create_context(out, runtime_config=runtime_config)
 
     stage = FetchStage(
@@ -205,7 +210,7 @@ def fetch(
         include_orderbooks=include_orderbooks,
         include_spreads=include_spreads,
         resolved_only=resolved_only,
-        max_concurrency=max_concurrency,
+        max_concurrency=effective_max_concurrency,
     )
 
     asyncio.run(stage.execute())
