@@ -72,30 +72,35 @@ def init(
     level = logging.DEBUG if verbose else logging.INFO
     setup_logging(level=level)
 
-    ctx.obj = RuntimeConfig(
+    runtime_config = RuntimeConfig(
         http_timeout=http_timeout if http_timeout != _DEFAULT_HTTP_TIMEOUT else None,
         max_concurrency=max_concurrency if max_concurrency != _DEFAULT_MAX_CONCURRENCY else None,
         data_dir=str(data_dir) if data_dir != _DEFAULT_DATA_DIR else None,
     )
+    ctx.obj = runtime_config
 
-    # TODO: BUG - This log shows CLI input values, not effective merged config values
-    # TODO: Should log context.http_timeout and context.max_concurrency after merging with config
-    # TODO: Currently misleading - shows CLI defaults even when config file has different values
+    temp_context = create_context(data_dir, runtime_config=runtime_config)
+    effective_config = temp_context.effective_config
     console.log(
         f"polymorph v{__version__} "
-        f"(data_dir={data_dir}, timeout={http_timeout}s, max_concurrency={max_concurrency})"
+        f"(data_dir={temp_context.data_dir}, timeout={effective_config.http_timeout}s, "
+        f"max_concurrency={effective_config.max_concurrency})"
     )
 
 
 @app.command()
-def version() -> None:
+def version(ctx: typer.Context) -> None:
+    runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
+    temp_context = create_context(_DEFAULT_DATA_DIR, runtime_config=runtime_config)
+    effective_config = temp_context.effective_config
+
     table = Table(title="polymorph")
     table.add_column("Field")
     table.add_column("Value")
     table.add_row("Version", __version__)
-    table.add_row("Data dir", config.general.data_dir)
-    table.add_row("HTTP timeout", str(config.general.http_timeout))
-    table.add_row("Max concurrency", str(config.general.max_concurrency))
+    table.add_row("Data dir", str(temp_context.data_dir))
+    table.add_row("HTTP timeout", str(effective_config.http_timeout))
+    table.add_row("Max concurrency", str(effective_config.max_concurrency))
     console.print(table)
 
 
