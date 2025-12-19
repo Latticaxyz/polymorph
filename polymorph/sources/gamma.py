@@ -232,30 +232,31 @@ class Gamma(DataSource[pl.DataFrame]):
         if resolved_only:
             markets = [m for m in markets if m.resolved is True]
 
-        if not markets:
-            return pl.DataFrame(
-                schema={
-                    "id": pl.Utf8,
-                    "question": pl.Utf8,
-                    "description": pl.Utf8,
-                    "market_slug": pl.Utf8,
-                    "condition_id": pl.Utf8,
-                    "token_ids": pl.List(pl.Utf8),
-                    "outcomes": pl.List(pl.Utf8),
-                    "active": pl.Boolean,
-                    "closed": pl.Boolean,
-                    "archived": pl.Boolean,
-                    "created_at": pl.Utf8,
-                    "end_date": pl.Utf8,
-                    "resolved": pl.Boolean,
-                    "resolution_date": pl.Utf8,
-                    "resolution_outcome": pl.Utf8,
-                    "tags": pl.List(pl.Utf8),
-                    "category": pl.Utf8,
-                }
-            )
+        schema = pl.Schema(
+            [
+                ("id", pl.Utf8),
+                ("question", pl.Utf8),
+                ("description", pl.Utf8),
+                ("market_slug", pl.Utf8),
+                ("condition_id", pl.Utf8),
+                ("token_ids", pl.List(pl.Utf8)),
+                ("outcomes", pl.List(pl.Utf8)),
+                ("active", pl.Boolean),
+                ("closed", pl.Boolean),
+                ("archived", pl.Boolean),
+                ("created_at", pl.Utf8),
+                ("end_date", pl.Utf8),
+                ("resolved", pl.Boolean),
+                ("resolution_date", pl.Utf8),
+                ("resolution_outcome", pl.Utf8),
+                ("tags", pl.List(pl.Utf8)),
+                ("category", pl.Utf8),
+            ]
+        )
 
-        # Convert Market objects to dictionaries for DataFrame
+        if not markets:
+            return pl.DataFrame(schema=schema)
+
         rows = [
             {
                 "id": m.id,
@@ -279,4 +280,4 @@ class Gamma(DataSource[pl.DataFrame]):
             for m in markets
         ]
 
-        return pl.DataFrame(rows)
+        return pl.DataFrame(rows, schema=schema)
