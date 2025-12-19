@@ -79,14 +79,6 @@ def init(
     )
     ctx.obj = runtime_config
 
-    temp_context = create_context(data_dir, runtime_config=runtime_config)
-    effective_config = temp_context.effective_config
-    console.log(
-        f"polymorph v{__version__} "
-        f"(data_dir={temp_context.data_dir}, timeout={effective_config.http_timeout}s, "
-        f"max_concurrency={effective_config.max_concurrency})"
-    )
-
 
 @app.command()
 def version(ctx: typer.Context) -> None:
@@ -190,7 +182,8 @@ def fetch(
         f"time_period={time_period_str}, out={out}, gamma={include_gamma}, "
         f"prices={include_prices}, trades={include_trades}, "
         f"order_books={include_orderbooks}, spreads={include_spreads}, "
-        f"resolved_only={resolved_only}"
+        f"resolved_only={resolved_only}, max_concurrency={max_concurrency}, "
+        f"gamma_max_pages={gamma_max_pages}"
     )
 
     runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
