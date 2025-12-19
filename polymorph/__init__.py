@@ -1,7 +1,8 @@
 from importlib import import_module
+from importlib.metadata import version
 from types import ModuleType
 
-__version__ = "0.1.0"
+__version__ = version("lattica-polymorph")
 
 from . import pipeline, sources, utils
 
