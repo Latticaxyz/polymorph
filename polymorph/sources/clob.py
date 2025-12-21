@@ -132,10 +132,10 @@ class CLOB(DataSource[pl.DataFrame]):
     ) -> pl.DataFrame:
         url = f"{self.clob_base_url}/prices-history"
         params: dict[str, str | int | float | bool] = {
-            "market": token_id,  # API requires 'market' not 'token_id'
-            "startTs": start_ts,  # Send milliseconds directly
-            "endTs": end_ts,
-            "fidelity": fidelity,  # Fidelity is in seconds
+            "market": token_id,
+            "startTs": start_ts // 1000,  # API expects seconds
+            "endTs": end_ts // 1000,
+            "fidelity": fidelity,
         }
 
         data = await self._get(url, params=params, use_data_api=False)
