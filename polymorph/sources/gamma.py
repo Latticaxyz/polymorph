@@ -1,9 +1,3 @@
-"""Per verified API behavior:
-- Markets returned as direct array (not wrapped in object)
-- clobTokenIds field is stringified JSON array, not direct list
-- Requires json.loads() to parse
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -132,7 +126,6 @@ class Gamma(DataSource[pl.DataFrame]):
                 if not isinstance(item, dict):
                     raise ValueError(f"Market item must be dict, got {type(item).__name__}")
 
-                # Handle stringified JSON clobTokenIds before passing to Market model
                 if "clobTokenIds" in item:
                     token_ids_raw = item["clobTokenIds"]
                     if isinstance(token_ids_raw, str):
