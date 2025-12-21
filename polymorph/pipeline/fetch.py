@@ -188,7 +188,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
         if self.include_prices and token_ids:
             async with self.clob:
                 price_coros: Sequence[Awaitable[pl.DataFrame]] = [
-                    self.clob.fetch_prices_history(tid, interval="all") for tid in token_ids
+                    self.clob.fetch_prices_history(tid, start_ts=start_ts, end_ts=end_ts) for tid in token_ids
                 ]
                 dfs = await self._fetch_with_progress("prices", price_coros, sem)
 
