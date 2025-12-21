@@ -12,7 +12,7 @@ from polymorph.core.retry import with_retry
 from polymorph.models.api import OrderBook, OrderBookLevel
 from polymorph.utils.constants import CLOB_MAX_PRICE_HISTORY_MS
 from polymorph.utils.logging import get_logger
-from polymorph.utils.parse import parse_decimal_flexible, parse_decimal_string, parse_timestamp_ms
+from polymorph.utils.parse import parse_timestamp_ms
 
 logger = get_logger(__name__)
 
@@ -141,26 +141,26 @@ class CLOB(DataSource[pl.DataFrame]):
             raise ValueError(f"'history' must be list, got {type(hist).__name__}")
 
         if not hist:
-            return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Utf8})
+            return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Float64})
 
         rows: list[dict[str, object]] = []
         for item in hist:
             if not isinstance(item, dict):
                 raise ValueError(f"History item must be dict, got {type(item).__name__}")
 
-            # Strict parsing - must have both 't' and 'p'
             if "t" not in item or "p" not in item:
                 raise ValueError(f"History item missing required fields: {item}")
 
-            # API returns timestamps in seconds, convert to milliseconds
             t_seconds = item["t"]
             if isinstance(t_seconds, (int, float)):
                 t = int(t_seconds * 1000) if t_seconds < 10000000000 else int(t_seconds)
             else:
                 t = parse_timestamp_ms(t_seconds)
 
-            # API returns price as a number, convert to decimal string
-            p = parse_decimal_flexible(item["p"])
+            p_val = item["p"]
+            if not isinstance(p_val, (int, float)):
+                raise ValueError(f"Price must be numeric, got {type(p_val).__name__}")
+            p = float(p_val)
 
             rows.append({"token_id": token_id, "t": t, "p": p})
 
@@ -192,26 +192,26 @@ class CLOB(DataSource[pl.DataFrame]):
             raise ValueError(f"'history' must be list, got {type(hist).__name__}")
 
         if not hist:
-            return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Utf8})
+            return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Float64})
 
         rows: list[dict[str, object]] = []
         for item in hist:
             if not isinstance(item, dict):
                 raise ValueError(f"History item must be dict, got {type(item).__name__}")
 
-            # Strict parsing - must have both 't' and 'p'
             if "t" not in item or "p" not in item:
                 raise ValueError(f"History item missing required fields: {item}")
 
-            # API returns timestamps in seconds, convert to milliseconds
             t_seconds = item["t"]
             if isinstance(t_seconds, (int, float)):
                 t = int(t_seconds * 1000) if t_seconds < 10000000000 else int(t_seconds)
             else:
                 t = parse_timestamp_ms(t_seconds)
 
-            # API returns price as a number, convert to decimal string
-            p = parse_decimal_flexible(item["p"])
+            p_val = item["p"]
+            if not isinstance(p_val, (int, float)):
+                raise ValueError(f"Price must be numeric, got {type(p_val).__name__}")
+            p = float(p_val)
 
             rows.append({"token_id": token_id, "t": t, "p": p})
 
@@ -220,18 +220,16 @@ class CLOB(DataSource[pl.DataFrame]):
     async def fetch_prices_history(
         self,
         token_id: str,
-        start_ts: int | None = None,  # Unix milliseconds
-        end_ts: int | None = None,  # Unix milliseconds
+        start_ts: int | None = None,
+        end_ts: int | None = None,
         fidelity: int | None = None,
-        interval: str | None = None,  # 'all', 'max', '1d', '1w', etc. (mutually exclusive with start_ts/end_ts)
+        interval: str | None = None,
     ) -> pl.DataFrame:
         fidelity = fidelity if fidelity is not None else self.default_fidelity
 
-        # If interval is provided, use it (gets full history without chunking)
         if interval is not None:
             return await self._fetch_price_history_interval(token_id, interval, fidelity)
 
-        # Otherwise use start_ts/end_ts with chunking
         if start_ts is None or end_ts is None:
             raise ValueError("Either 'interval' or both 'start_ts' and 'end_ts' must be provided")
 
@@ -244,11 +242,10 @@ class CLOB(DataSource[pl.DataFrame]):
             df = await self._fetch_price_history_chunk(token_id, current_start, current_end, fidelity)
             if df.height > 0:
                 results.append(df)
-            # Move to next chunk (add 1 ms to avoid overlap)
             current_start = current_end + 1
 
         if not results:
-            return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Utf8})
+            return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Float64})
 
         combined = pl.concat(results, how="vertical")
 
@@ -285,9 +282,15 @@ class CLOB(DataSource[pl.DataFrame]):
                 continue
 
             try:
-                bids.append(
-                    OrderBookLevel(price=parse_decimal_string(level["price"]), size=parse_decimal_string(level["size"]))
-                )
+                price_val = level["price"]
+                size_val = level["size"]
+                if isinstance(price_val, str):
+                    price_val = float(price_val)
+                if isinstance(size_val, str):
+                    size_val = float(size_val)
+                if not isinstance(price_val, (int, float)) or not isinstance(size_val, (int, float)):
+                    continue
+                bids.append(OrderBookLevel(price=float(price_val), size=float(size_val)))
             except (ValueError, TypeError):
                 continue
 
@@ -299,18 +302,23 @@ class CLOB(DataSource[pl.DataFrame]):
                 continue
 
             try:
-                asks.append(
-                    OrderBookLevel(price=parse_decimal_string(level["price"]), size=parse_decimal_string(level["size"]))
-                )
+                price_val = level["price"]
+                size_val = level["size"]
+                if isinstance(price_val, str):
+                    price_val = float(price_val)
+                if isinstance(size_val, str):
+                    size_val = float(size_val)
+                if not isinstance(price_val, (int, float)) or not isinstance(size_val, (int, float)):
+                    continue
+                asks.append(OrderBookLevel(price=float(price_val), size=float(size_val)))
             except (ValueError, TypeError):
                 continue
 
-        # Sort by price (convert to float for comparison)
-        bids = sorted(bids, key=lambda x: float(x.price), reverse=True)
-        asks = sorted(asks, key=lambda x: float(x.price))
+        bids = sorted(bids, key=lambda x: x.price, reverse=True)
+        asks = sorted(asks, key=lambda x: x.price)
 
-        best_bid = float(bids[0].price) if bids else None
-        best_ask = float(asks[0].price) if asks else None
+        best_bid = bids[0].price if bids else None
+        best_ask = asks[0].price if asks else None
 
         try:
             timestamp = parse_timestamp_ms(data.get("timestamp", 0))
@@ -339,27 +347,25 @@ class CLOB(DataSource[pl.DataFrame]):
                 logger.error(f"Failed to fetch order book for {token_id}: {e}")
                 continue
 
-            # Add bid levels
             for level in ob.bids:
                 rows.append(
                     {
                         "token_id": ob.token_id,
                         "timestamp": ob.timestamp,
                         "side": "bid",
-                        "price": level.price,  # String
-                        "size": level.size,  # String
+                        "price": level.price,
+                        "size": level.size,
                     }
                 )
 
-            # Add ask levels
             for level in ob.asks:
                 rows.append(
                     {
                         "token_id": ob.token_id,
                         "timestamp": ob.timestamp,
                         "side": "ask",
-                        "price": level.price,  # String
-                        "size": level.size,  # String
+                        "price": level.price,
+                        "size": level.size,
                     }
                 )
 
@@ -470,24 +476,18 @@ class CLOB(DataSource[pl.DataFrame]):
             )
 
         if not rows:
-            # Note: API returns price/size as numbers, not strings
             schema = {
                 "id": pl.Utf8,
                 "market": pl.Utf8,
                 "asset_id": pl.Utf8,
                 "side": pl.Utf8,
-                "size": pl.Float64,  # API returns as number
-                "price": pl.Float64,  # API returns as number
+                "size": pl.Float64,
+                "price": pl.Float64,
                 "timestamp": pl.Int64,
             }
             return pl.DataFrame(schema=schema)
 
         df = pl.DataFrame(rows)
-
-        if "price" in df.columns:
-            df = df.with_columns(pl.col("price").cast(pl.Utf8).alias("price"))
-        if "size" in df.columns:
-            df = df.with_columns(pl.col("size").cast(pl.Utf8).alias("size"))
 
         if "timestamp" in df.columns:
             df = df.with_columns(pl.col("timestamp").cast(pl.Int64))
