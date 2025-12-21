@@ -68,6 +68,38 @@ async def test_clob_fetch_price_history_single_chunk(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_clob_fetch_price_history_sends_seconds_to_api(tmp_path: Path) -> None:
+    """Test that timestamps are converted to seconds when sent to API."""
+    context = _make_context(tmp_path)
+    clob = CLOB(context, clob_base_url="https://example.test", data_api_url="https://example-data.test")
+
+    start_ts_ms = 1577836800000  # 2020-01-01 00:00:00 in milliseconds
+    end_ts_ms = 1577923200000  # 2020-01-02 00:00:00 in milliseconds
+    expected_start_s = 1577836800  # Same timestamp in seconds
+    expected_end_s = 1577923200
+
+    received_params: dict[str, int | str | bool] = {}
+
+    async def fake_get(
+        url: str, params: dict[str, int | str | bool], use_data_api: bool = False
+    ) -> dict[str, list[dict[str, str | int | float]]]:
+        nonlocal received_params
+        received_params = dict(params)
+        return {"history": [{"t": expected_start_s, "p": "0.5"}]}
+
+    clob._get = fake_get  # type: ignore[method-assign]
+
+    await clob.fetch_prices_history("TOKEN", start_ts=start_ts_ms, end_ts=end_ts_ms, fidelity=60)
+
+    assert (
+        received_params["startTs"] == expected_start_s
+    ), f"API should receive seconds, not milliseconds. Got {received_params['startTs']}"
+    assert (
+        received_params["endTs"] == expected_end_s
+    ), f"API should receive seconds, not milliseconds. Got {received_params['endTs']}"
+
+
+@pytest.mark.asyncio
 async def test_clob_fetch_price_history_chunking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that long time spans are split into multiple chunks."""
     context = _make_context(tmp_path)
