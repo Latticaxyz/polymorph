@@ -1,12 +1,3 @@
-"""
-- CLOB /prices-history: Returns timestamps/prices as numbers, converted to strings
-- CLOB /book: Returns price/size as strings (decimal format)
-- Data API /trades: Returns price/size/timestamp as numbers, converted to strings
-
-All timestamps stored as Int64 milliseconds.
-All prices/sizes stored as Utf8 decimal strings for precision.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
