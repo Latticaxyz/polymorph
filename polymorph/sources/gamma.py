@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import cast
 
 import httpx
@@ -19,6 +19,8 @@ from polymorph.models.api import Market
 from polymorph.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+ProgressCallback = Callable[[int], None]
 
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 JsonDict = dict[str, JsonValue]
@@ -96,7 +98,11 @@ class Gamma(DataSource[pl.DataFrame]):
         resp.raise_for_status()
         return cast(JsonValue, resp.json())
 
-    async def _fetch_markets_with_params(self, params: dict[str, str | int | float | bool]) -> list[Market]:
+    async def _fetch_markets_with_params(
+        self,
+        params: dict[str, str | int | float | bool],
+        on_progress: ProgressCallback | None = None,
+    ) -> list[Market]:
         markets: list[Market] = []
         page = 1
 
@@ -151,11 +157,19 @@ class Gamma(DataSource[pl.DataFrame]):
 
                 markets.append(market)
 
+            if on_progress is not None:
+                on_progress(len(markets))
+
         return markets
 
     @with_retry()
     async def fetch_markets(
-        self, *, resolved_only: bool = False, start_ts: int | None = None, end_ts: int | None = None
+        self,
+        *,
+        resolved_only: bool = False,
+        start_ts: int | None = None,
+        end_ts: int | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> pl.DataFrame:
         from datetime import datetime, timezone
 
@@ -174,7 +188,7 @@ class Gamma(DataSource[pl.DataFrame]):
         # Fetch active markets (not closed yet)
         logger.info("Fetching active markets...")
         active_params: dict[str, str | int | float | bool] = {"closed": False}
-        active_markets = await self._fetch_markets_with_params(active_params)
+        active_markets = await self._fetch_markets_with_params(active_params, on_progress=on_progress)
 
         # Filter active markets by creation date
         # API doesn't support created_at_max parameter
@@ -210,7 +224,15 @@ class Gamma(DataSource[pl.DataFrame]):
                 "end_date_min": start_date,
                 "end_date_max": end_date,
             }
-            closed_markets = await self._fetch_markets_with_params(closed_params)
+            active_count = len(markets)
+
+            def offset_progress(count: int) -> None:
+                if on_progress is not None:
+                    on_progress(active_count + count)
+
+            closed_markets = await self._fetch_markets_with_params(
+                closed_params, on_progress=offset_progress if on_progress else None
+            )
             markets.extend(closed_markets)
             logger.info(f"Fetched {len(closed_markets)} closed markets")
 
