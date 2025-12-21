@@ -9,7 +9,7 @@ All prices/sizes stored as Utf8 decimal strings for precision.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import cast
 
 import httpx
@@ -24,6 +24,8 @@ from polymorph.utils.logging import get_logger
 from polymorph.utils.parse import parse_decimal_flexible, parse_decimal_string, parse_timestamp_ms
 
 logger = get_logger(__name__)
+
+ProgressCallback = Callable[[int], None]
 
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 JsonDict = dict[str, JsonValue]
@@ -413,7 +415,13 @@ class CLOB(DataSource[pl.DataFrame]):
 
         return []
 
-    async def fetch_trades(self, market_ids: list[str] | None = None, since_ts: int | None = None) -> pl.DataFrame:
+    async def _fetch_trades_for_market_batch(
+        self,
+        market_ids: list[str] | None,
+        max_rows: int,
+        on_progress: ProgressCallback | None = None,
+        progress_offset: int = 0,
+    ) -> list[dict[str, str | int | float]]:
         rows: list[dict[str, str | int | float]] = []
         offset = 0
         limit = 1000
@@ -423,16 +431,52 @@ class CLOB(DataSource[pl.DataFrame]):
             if not batch:
                 break
 
-            if len(rows) + len(batch) > self.max_trades:
-                remaining = self.max_trades - len(rows)
+            if len(rows) + len(batch) > max_rows:
+                remaining = max_rows - len(rows)
                 rows.extend(batch[:remaining])
+                if on_progress is not None:
+                    on_progress(progress_offset + len(rows))
                 break
 
             rows.extend(batch)
             offset += limit
 
+            if on_progress is not None:
+                on_progress(progress_offset + len(rows))
+
             if len(batch) < limit:
                 break
+
+        return rows
+
+    async def fetch_trades(
+        self,
+        market_ids: list[str] | None = None,
+        since_ts: int | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> pl.DataFrame:
+        rows: list[dict[str, str | int | float]] = []
+        market_batch_size = 50
+
+        if market_ids and len(market_ids) > market_batch_size:
+            for i in range(0, len(market_ids), market_batch_size):
+                if len(rows) >= self.max_trades:
+                    break
+                chunk = market_ids[i : i + market_batch_size]
+                remaining_budget = self.max_trades - len(rows)
+                batch_rows = await self._fetch_trades_for_market_batch(
+                    market_ids=chunk,
+                    max_rows=remaining_budget,
+                    on_progress=on_progress,
+                    progress_offset=len(rows),
+                )
+                rows.extend(batch_rows)
+        else:
+            rows = await self._fetch_trades_for_market_batch(
+                market_ids=market_ids,
+                max_rows=self.max_trades,
+                on_progress=on_progress,
+            )
 
         if not rows:
             # Note: API returns price/size as numbers, not strings
