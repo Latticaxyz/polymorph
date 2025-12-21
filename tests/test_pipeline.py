@@ -68,6 +68,7 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
     class DummyClob:
         def __init__(self) -> None:
             self.price_calls: list[str] = []
+            self.price_params: list[dict[str, int | str | None]] = []
             self.orderbook_calls: list[str] = []
             self.spread_calls: list[str] = []
             self.trades_called = False
@@ -87,11 +88,17 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
             fidelity: int | None = None,
         ) -> pl.DataFrame:
             self.price_calls.append(token_id)
-            # Always return sample data regardless of parameters
+            self.price_params.append(
+                {
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "interval": interval,
+                }
+            )
             return pl.DataFrame(
                 {
-                    "t": [1704067200000, 1704153600000],  # Sample timestamps
-                    "p": ["0.4", "0.6"],  # Prices are strings per API spec
+                    "t": [1704067200000, 1704153600000],
+                    "p": ["0.4", "0.6"],
                     "token_id": [token_id, token_id],
                 }
             )
@@ -184,6 +191,11 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
     assert sorted(clob.orderbook_calls) == ["NO1", "NO2", "YES1", "YES2"]
     assert sorted(clob.spread_calls) == ["NO1", "NO2", "YES1", "YES2"]
     assert clob.trades_called
+
+    for params in clob.price_params:
+        assert params["start_ts"] is not None, "FetchStage must pass start_ts, not interval"
+        assert params["end_ts"] is not None, "FetchStage must pass end_ts, not interval"
+        assert params["interval"] is None, "FetchStage must not use interval parameter"
 
     process_stage = ProcessStage(context)
     process_result = await process_stage.execute(fetch_result)
