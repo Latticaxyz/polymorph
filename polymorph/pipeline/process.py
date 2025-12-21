@@ -24,6 +24,12 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         self.raw_dir = Path(raw_dir) if raw_dir else Path("raw")
         self.processed_dir = Path(processed_dir) if processed_dir else Path("processed")
 
+    def _stamp(self) -> str:
+        return self.context.run_timestamp.strftime("%Y%m%dT%H%M%SZ")
+
+    def _output_dir(self) -> Path:
+        return self.processed_dir / self._stamp()
+
     @property
     def name(self) -> str:
         return "process"
@@ -104,7 +110,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             logger.warning("No enriched prices after join")
             return result
 
-        output_path = self.processed_dir / "prices_enriched.parquet"
+        output_path = self._output_dir() / "prices_enriched.parquet"
         self.storage.write(enriched, output_path)
         result.prices_enriched_path = self.storage._resolve_path(output_path)
         result.enriched_count = enriched.height
@@ -165,7 +171,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         else:
             daily_returns = daily_prices.collect()
 
-        output_path = self.processed_dir / "daily_returns.parquet"
+        output_path = self._output_dir() / "daily_returns.parquet"
         self.storage.write(daily_returns, output_path)
         result.daily_returns_path = self.storage._resolve_path(output_path)
         result.returns_count = daily_returns.height
@@ -209,7 +215,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
 
         panel = daily_prices.pivot(on="token_id", index="day_ts", values="price").sort("day_ts")
 
-        output_path = self.processed_dir / "price_panel.parquet"
+        output_path = self._output_dir() / "price_panel.parquet"
         self.storage.write(panel, output_path)
         result.price_panel_path = self.storage._resolve_path(output_path)
         result.panel_days = panel.height
@@ -263,7 +269,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             .collect()
         )
 
-        output_path = self.processed_dir / "trades_daily_agg.parquet"
+        output_path = self._output_dir() / "trades_daily_agg.parquet"
         self.storage.write(trade_agg, output_path)
         result.trades_daily_agg_path = self.storage._resolve_path(output_path)
         result.trade_agg_count = trade_agg.height
