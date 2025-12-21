@@ -188,9 +188,32 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
     process_stage = ProcessStage(context)
     process_result = await process_stage.execute(fetch_result)
 
+    assert process_result.prices_enriched_path is not None
+    assert process_result.prices_enriched_path.exists()
+    assert process_result.enriched_count > 0
+
+    enriched_df = pl.read_parquet(process_result.prices_enriched_path)
+    assert "market_id" in enriched_df.columns
+    assert "outcome_name" in enriched_df.columns
+    assert "question" in enriched_df.columns
+
     assert process_result.daily_returns_path is not None
     assert process_result.daily_returns_path.exists()
+    assert process_result.returns_count > 0
+
+    returns_df = pl.read_parquet(process_result.daily_returns_path)
+    assert "ret" in returns_df.columns
+    assert "market_id" in returns_df.columns
+
+    assert process_result.price_panel_path is not None
+    assert process_result.price_panel_path.exists()
+    assert process_result.panel_days > 0
+    assert process_result.panel_tokens > 0
+
+    panel_df = pl.read_parquet(process_result.price_panel_path)
+    assert "day_ts" in panel_df.columns
+    assert panel_df.width > 1
+
     assert process_result.trades_daily_agg_path is not None
     assert process_result.trades_daily_agg_path.exists()
-    assert process_result.returns_count > 0
     assert process_result.trade_agg_count > 0
