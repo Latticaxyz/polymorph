@@ -44,9 +44,24 @@ def create_context(
     )
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"polymorph v{__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
 def init(
     ctx: typer.Context,
+    _version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        "-v",
+        help="Show version and exit",
+        callback=_version_callback,
+        is_eager=True,
+    ),
     data_dir: Path = typer.Option(
         _DEFAULT_DATA_DIR,
         "--data-dir",
@@ -56,7 +71,6 @@ def init(
     verbose: bool = typer.Option(
         False,
         "--verbose",
-        "-v",
         help="Enable verbose (DEBUG) logging",
     ),
     http_timeout: int = typer.Option(
@@ -79,22 +93,6 @@ def init(
         data_dir=str(data_dir) if data_dir != _DEFAULT_DATA_DIR else None,
     )
     ctx.obj = runtime_config
-
-
-@app.command()
-def version(ctx: typer.Context) -> None:
-    runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
-    temp_context = create_context(_DEFAULT_DATA_DIR, runtime_config=runtime_config)
-    effective_config = temp_context.effective_config
-
-    table = Table(title="polymorph")
-    table.add_column("Field")
-    table.add_column("Value")
-    table.add_row("Version", __version__)
-    table.add_row("Data dir", str(temp_context.data_dir))
-    table.add_row("HTTP timeout", str(effective_config.http_timeout))
-    table.add_row("Max concurrency", str(effective_config.max_concurrency))
-    console.print(table)
 
 
 @app.command(help="Fetch and store Gamma & CLOB API data")
