@@ -26,10 +26,15 @@ class FetchResult(BaseModel):
 class ProcessResult(BaseModel):
     daily_returns_path: Path | None = None
     trades_daily_agg_path: Path | None = None
+    prices_enriched_path: Path | None = None
+    price_panel_path: Path | None = None
     run_timestamp: datetime
     returns_count: int = 0
     trade_agg_count: int = 0
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    enriched_count: int = 0
+    panel_days: int = 0
+    panel_tokens: int = 0
+    metadata: dict[str, object] = Field(default_factory=dict)
 
     model_config = {"arbitrary_types_allowed": True}
 
