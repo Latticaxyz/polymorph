@@ -230,7 +230,6 @@ class Gamma(DataSource[pl.DataFrame]):
             logger.info(f"Fetched {len(closed_markets)} closed markets")
 
         # Deduplicate markets (overlap between active and closed sets)
-        # Happens when markets transition from active to closed
         seen_ids: set[str] = set()
         unique_markets: list[Market] = []
         for market in markets:
