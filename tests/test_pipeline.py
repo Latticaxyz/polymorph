@@ -98,7 +98,7 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
             return pl.DataFrame(
                 {
                     "t": [1704067200000, 1704153600000],
-                    "p": ["0.4", "0.6"],
+                    "p": [0.4, 0.6],
                     "token_id": [token_id, token_id],
                 }
             )
@@ -108,9 +108,9 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
             self.orderbook_calls.append(token_id)
             return OrderBook(
                 token_id=token_id,
-                timestamp=1704067200000,  # Valid timestamp in milliseconds (Jan 1, 2024)
-                bids=[OrderBookLevel(price="0.4", size="10.0")],
-                asks=[OrderBookLevel(price="0.6", size="5.0")],
+                timestamp=1704067200000,
+                bids=[OrderBookLevel(price=0.4, size=10.0)],
+                asks=[OrderBookLevel(price=0.6, size=5.0)],
                 best_bid=0.4,
                 best_ask=0.6,
                 mid_price=0.5,
@@ -124,8 +124,8 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
                 self.orderbook_calls.append(token_id)
                 rows.extend(
                     [
-                        {"token_id": token_id, "timestamp": 123, "side": "bid", "price": "0.4", "size": "10.0"},
-                        {"token_id": token_id, "timestamp": 123, "side": "ask", "price": "0.6", "size": "5.0"},
+                        {"token_id": token_id, "timestamp": 123, "side": "bid", "price": 0.4, "size": 10.0},
+                        {"token_id": token_id, "timestamp": 123, "side": "ask", "price": 0.6, "size": 5.0},
                     ]
                 )
             return pl.DataFrame(rows)
@@ -145,12 +145,12 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
             self, market_ids: object = None, since_ts: int | None = None, on_progress: object = None
         ) -> pl.DataFrame:
             self.trades_called = True
-            base_ts = since_ts or 1704067200000  # Valid timestamp in milliseconds
+            base_ts = since_ts or 1704067200000
             return pl.DataFrame(
                 {
-                    "timestamp": [base_ts, base_ts + 86_400_000],  # Milliseconds
-                    "size": ["1.0", "2.0"],  # Strings per API spec
-                    "price": ["0.4", "0.6"],  # Strings per API spec
+                    "timestamp": [base_ts, base_ts + 86_400_000],
+                    "size": [1.0, 2.0],
+                    "price": [0.4, 0.6],
                     "conditionId": ["c1", "c1"],
                 }
             )
