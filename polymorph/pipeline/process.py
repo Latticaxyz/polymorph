@@ -95,6 +95,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         enriched = (
             prices_lf.select(["token_id", timestamp_col, price_col])
             .rename({timestamp_col: "t", price_col: "p"})
+            .with_columns(pl.col("p").cast(pl.Float64))
             .join(token_map, on="token_id", how="inner")
             .collect()
         )
