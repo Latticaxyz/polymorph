@@ -22,7 +22,7 @@ class GeneralConfig(BaseModel):
 class StorageConfig(BaseModel):
     backend: Literal["parquet", "parquet_duckdb", "sql"] = "parquet_duckdb"
     parquet_root: str = ""
-    duckdb_path: str = ""
+    duckdb_path: str = "catalog.duckdb"
     sql_url: str = ""
     sql_schema: str = ""
 
@@ -78,7 +78,7 @@ data_dir = "data"
 # it writes to parquet + mirrors into the shared DB.
 backend = "parquet_duckdb"
 parquet_root = ""
-duckdb_path = ""
+duckdb_path = "catalog.duckdb"
 sql_url = ""
 sql_schema = ""
 """
