@@ -13,7 +13,8 @@ from rich.table import Table
 from polymorph import __version__
 from polymorph.config import config
 from polymorph.core.base import PipelineContext, RuntimeConfig
-from polymorph.pipeline import FetchStage
+from polymorph.models.pipeline import ProcessResult
+from polymorph.pipeline import FetchStage, ProcessStage
 from polymorph.utils.logging import setup as setup_logging
 
 click.Context.formatter_class = click.HelpFormatter
@@ -215,6 +216,84 @@ def fetch(
 
     asyncio.run(stage.execute())
     console.print("Fetch complete.")
+
+
+@app.command(help="Process raw data into analytical formats")
+def process(
+    ctx: typer.Context,
+    raw_dir: Path = typer.Option(
+        None,
+        "--raw-dir",
+        "-r",
+        help="Input directory for raw data (default: data/raw)",
+    ),
+    out: Path = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="Output directory for processed data (default: data/processed)",
+    ),
+    enriched: bool = typer.Option(True, "--enriched/--no-enriched", help="Build enriched raw prices"),
+    returns: bool = typer.Option(True, "--returns/--no-returns", help="Build daily returns"),
+    panel: bool = typer.Option(True, "--panel/--no-panel", help="Build wide-format price panel"),
+    trades: bool = typer.Option(True, "--trades/--no-trades", help="Build trade aggregates"),
+) -> None:
+    runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
+    data_dir = Path(runtime_config.data_dir) if runtime_config.data_dir else _DEFAULT_DATA_DIR
+    context = create_context(data_dir, runtime_config=runtime_config)
+
+    console.log(
+        f"data_dir={data_dir}, raw_dir={raw_dir}, out={out}, "
+        f"enriched={enriched}, returns={returns}, panel={panel}, trades={trades}"
+    )
+
+    stage = ProcessStage(
+        context=context,
+        raw_dir=raw_dir,
+        processed_dir=out,
+    )
+
+    result = ProcessResult(run_timestamp=context.run_timestamp)
+
+    if enriched:
+        r = stage.build_enriched_prices()
+        result.prices_enriched_path = r.prices_enriched_path
+        result.enriched_count = r.enriched_count
+
+    if returns:
+        r = stage.build_daily_returns()
+        result.daily_returns_path = r.daily_returns_path
+        result.returns_count = r.returns_count
+
+    if panel:
+        r = stage.build_price_panel()
+        result.price_panel_path = r.price_panel_path
+        result.panel_days = r.panel_days
+        result.panel_tokens = r.panel_tokens
+
+    if trades:
+        r = stage.build_trade_aggregates()
+        result.trades_daily_agg_path = r.trades_daily_agg_path
+        result.trade_agg_count = r.trade_agg_count
+
+    table = Table(title="Process Results")
+    table.add_column("Output")
+    table.add_column("Path")
+    table.add_column("Count")
+
+    if result.prices_enriched_path:
+        table.add_row("Enriched Prices", str(result.prices_enriched_path), str(result.enriched_count))
+    if result.daily_returns_path:
+        table.add_row("Daily Returns", str(result.daily_returns_path), str(result.returns_count))
+    if result.price_panel_path:
+        table.add_row(
+            "Price Panel", str(result.price_panel_path), f"{result.panel_days} days x {result.panel_tokens} tokens"
+        )
+    if result.trades_daily_agg_path:
+        table.add_row("Trade Aggregates", str(result.trades_daily_agg_path), str(result.trade_agg_count))
+
+    console.print(table)
+    console.print("Process complete.")
 
 
 def main() -> None:
