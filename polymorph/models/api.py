@@ -100,13 +100,17 @@ class Trade(BaseModel):
 
 
 class OrderBookLevel(BaseModel):
-    price: str  # Decimal string
-    size: str  # Decimal string
+    price: float
+    size: float
 
     @field_validator("price", "size", mode="before")
     @classmethod
-    def validate_decimal(cls, v: object) -> str:
-        return parse_decimal_string(v)
+    def validate_decimal(cls, v: object) -> float:
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str):
+            return float(v)
+        raise ValueError(f"Cannot convert {type(v).__name__} to float")
 
 
 class OrderBook(BaseModel):
