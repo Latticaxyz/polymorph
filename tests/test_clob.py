@@ -465,6 +465,35 @@ async def test_clob_fetch_trades_filters_by_since_ts_boundary(tmp_path: Path, mo
     assert "before" not in condition_ids, "Should exclude trade before boundary"
 
 
+@pytest.mark.asyncio
+async def test_clob_fetch_trades_batches_market_ids(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that fetch_trades batches market_ids to avoid URL length issues."""
+    context = _make_context(tmp_path)
+    clob = CLOB(context, max_trades=200000)
+
+    received_market_ids: list[list[str] | None] = []
+
+    async def fake_paged(
+        limit: int, offset: int, market_ids: list[str] | None = None
+    ) -> list[dict[str, str | int | float]]:
+        received_market_ids.append(market_ids)
+        if offset > 0:
+            return []
+        return [
+            {"timestamp": 1704067200000, "size": 1.0, "price": 0.5, "conditionId": "c1"},
+        ]
+
+    monkeypatch.setattr(clob, "fetch_trades_paged", fake_paged)
+
+    long_market_ids = [f"0x{'a' * 64}_{i:04d}" for i in range(120)]
+    await clob.fetch_trades(market_ids=long_market_ids, since_ts=None)
+
+    assert len(received_market_ids) >= 3, "Should batch 120 IDs into multiple calls (50 per batch)"
+    for batch in received_market_ids:
+        if batch is not None:
+            assert len(batch) <= 50, "Each batch should have at most 50 market IDs"
+
+
 # ============================================================================
 # HEADER TESTS
 # ============================================================================
