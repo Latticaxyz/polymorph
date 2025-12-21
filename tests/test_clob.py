@@ -46,8 +46,8 @@ async def test_clob_fetch_price_history_single_chunk(tmp_path: Path) -> None:
         assert params["market"] == "YES"
         return {
             "history": [
-                {"t": t1, "p": "0.1"},
-                {"t": t2, "p": "0.2"},
+                {"t": t1, "p": 0.1},
+                {"t": t2, "p": 0.2},
             ]
         }
 
@@ -55,16 +55,14 @@ async def test_clob_fetch_price_history_single_chunk(tmp_path: Path) -> None:
 
     df = await clob.fetch_prices_history("YES", start_ts=t1, end_ts=t2, fidelity=60)
 
-    # Verify structure
     assert df.height == 2
     assert set(df.columns) >= {"t", "p", "token_id"}
     assert set(df["token_id"].to_list()) == {"YES"}
 
-    # Verify data
     timestamps = df["t"].to_list()
     prices = df["p"].to_list()
     assert timestamps == [t1, t2]
-    assert prices == ["0.1", "0.2"]  # Stored as decimal strings
+    assert prices == [0.1, 0.2]
 
 
 @pytest.mark.asyncio
@@ -85,7 +83,7 @@ async def test_clob_fetch_price_history_sends_seconds_to_api(tmp_path: Path) -> 
     ) -> dict[str, list[dict[str, str | int | float]]]:
         nonlocal received_params
         received_params = dict(params)
-        return {"history": [{"t": expected_start_s, "p": "0.5"}]}
+        return {"history": [{"t": expected_start_s, "p": 0.5}]}
 
     clob._get = fake_get  # type: ignore[method-assign]
 
@@ -111,7 +109,7 @@ async def test_clob_fetch_price_history_chunking(tmp_path: Path, monkeypatch: py
         """Mock chunk fetcher that records calls."""
         _ = fidelity
         calls.append((start_ts, end_ts))
-        return pl.DataFrame({"t": [start_ts], "p": ["1.0"], "token_id": [token_id]})
+        return pl.DataFrame({"t": [start_ts], "p": [1.0], "token_id": [token_id]})
 
     monkeypatch.setattr(clob, "_fetch_price_history_chunk", fake_chunk)  # type: ignore[arg-type]
 
@@ -152,8 +150,8 @@ async def test_clob_fetch_price_history_with_interval(tmp_path: Path, monkeypatc
         assert params["fidelity"] == 60
         return {
             "history": [
-                {"t": t1, "p": "0.3"},
-                {"t": t2, "p": "0.7"},
+                {"t": t1, "p": 0.3},
+                {"t": t2, "p": 0.7},
             ]
         }
 
@@ -167,7 +165,7 @@ async def test_clob_fetch_price_history_with_interval(tmp_path: Path, monkeypatc
     timestamps = df["t"].to_list()
     prices = df["p"].to_list()
     assert timestamps == [t1, t2]
-    assert prices == ["0.3", "0.7"]
+    assert prices == [0.3, 0.7]
 
 
 @pytest.mark.asyncio
@@ -184,7 +182,7 @@ async def test_clob_fetch_price_history_interval_options(tmp_path: Path, monkeyp
         """Mock HTTP GET that tracks interval values."""
         _ = use_data_api
         intervals_tested.append(str(params["interval"]))
-        return {"history": [{"t": 1577836800000, "p": "0.5"}]}
+        return {"history": [{"t": 1577836800000, "p": 0.5}]}
 
     monkeypatch.setattr(clob, "_get", fake_get)
 
@@ -252,9 +250,9 @@ async def test_clob_fetch_trades_parses_created_at_and_filters(tmp_path: Path, m
     # Verify correct trade was kept
     assert set(df["conditionId"].to_list()) == {"c2"}, "Should keep only the second trade"
 
-    # Verify trade data
-    assert df["size"].to_list() == ["2"]
-    assert df["price"].to_list() == ["0.5"]
+    # Verify trade data (stored as Float64)
+    assert df["size"].to_list() == [2.0]
+    assert df["price"].to_list() == [0.5]
 
 
 @pytest.mark.asyncio
@@ -265,8 +263,8 @@ async def test_clob_orderbook_dataframe_and_spread(tmp_path: Path, monkeypatch: 
 
     async def fake_fetch_orderbook(token_id: str) -> OrderBook:
         """Mock orderbook fetcher with realistic data."""
-        bids = [OrderBookLevel(price="0.4", size="10.0")]
-        asks = [OrderBookLevel(price="0.6", size="5.0")]
+        bids = [OrderBookLevel(price=0.4, size=10.0)]
+        asks = [OrderBookLevel(price=0.6, size=5.0)]
         ob = OrderBook(
             token_id=token_id,
             timestamp=1577836800000,
@@ -290,14 +288,14 @@ async def test_clob_orderbook_dataframe_and_spread(tmp_path: Path, monkeypatch: 
     # Verify bid data
     bid_rows = df.filter(pl.col("side") == "bid")
     assert bid_rows.height == 1
-    assert bid_rows["price"].to_list() == ["0.4"]
-    assert bid_rows["size"].to_list() == ["10.0"]
+    assert bid_rows["price"].to_list() == [0.4]
+    assert bid_rows["size"].to_list() == [10.0]
 
     # Verify ask data
     ask_rows = df.filter(pl.col("side") == "ask")
     assert ask_rows.height == 1
-    assert ask_rows["price"].to_list() == ["0.6"]
-    assert ask_rows["size"].to_list() == ["5.0"]
+    assert ask_rows["price"].to_list() == [0.6]
+    assert ask_rows["size"].to_list() == [5.0]
 
     # Test spread calculation
     spread = await clob.fetch_spread("YES")
@@ -409,9 +407,9 @@ async def test_clob_fetch_price_history_deduplicates_timestamps(
         call_count += 1
 
         if call_count == 1:
-            return pl.DataFrame({"t": [0, 50, 100], "p": ["0.5", "0.6", "0.7"], "token_id": [token_id] * 3})
+            return pl.DataFrame({"t": [0, 50, 100], "p": [0.5, 0.6, 0.7], "token_id": [token_id] * 3})
         else:
-            return pl.DataFrame({"t": [100, 150, 200], "p": ["0.7", "0.8", "0.9"], "token_id": [token_id] * 3})
+            return pl.DataFrame({"t": [100, 150, 200], "p": [0.7, 0.8, 0.9], "token_id": [token_id] * 3})
 
     monkeypatch.setattr(clob, "_fetch_price_history_chunk", fake_chunk)
 
@@ -829,8 +827,8 @@ async def test_fetch_price_history_chunk_has_retry(tmp_path: Path, monkeypatch: 
 
         return {
             "history": [
-                {"t": 1577836800000, "p": "0.5"},
-                {"t": 1577836800001, "p": "0.6"},
+                {"t": 1577836800000, "p": 0.5},
+                {"t": 1577836800001, "p": 0.6},
             ]
         }
 
