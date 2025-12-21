@@ -36,7 +36,12 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
             return None
 
         async def fetch_markets(
-            self, *, resolved_only: bool = False, start_ts: int | None = None, end_ts: int | None = None
+            self,
+            *,
+            resolved_only: bool = False,
+            start_ts: int | None = None,
+            end_ts: int | None = None,
+            on_progress: object = None,
         ) -> pl.DataFrame:
             return pl.DataFrame(
                 {
@@ -129,7 +134,9 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
                 "timestamp": 123,
             }
 
-        async def fetch_trades(self, market_ids=None, since_ts: int | None = None) -> pl.DataFrame:
+        async def fetch_trades(
+            self, market_ids: object = None, since_ts: int | None = None, on_progress: object = None
+        ) -> pl.DataFrame:
             self.trades_called = True
             base_ts = since_ts or 1704067200000  # Valid timestamp in milliseconds
             return pl.DataFrame(
