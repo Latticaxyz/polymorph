@@ -101,7 +101,6 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         enriched = (
             prices_lf.select(["token_id", timestamp_col, price_col])
             .rename({timestamp_col: "t", price_col: "p"})
-            .with_columns(pl.col("p").cast(pl.Float64))
             .join(token_map, on="token_id", how="inner")
             .collect()
         )
@@ -161,7 +160,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         daily_prices = (
             lf.with_columns((pl.col(timestamp_col).cast(pl.Int64) // MS_PER_DAY * MS_PER_DAY).alias("day_ts"))
             .group_by(["token_id", "day_ts"])
-            .agg(pl.col(price_col).cast(pl.Float64).mean().alias("price_day"))
+            .agg(pl.col(price_col).mean().alias("price_day"))
             .sort(["token_id", "day_ts"])
             .with_columns(pl.col("price_day").pct_change().over("token_id").alias("ret"))
         )
@@ -205,7 +204,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         daily_prices = (
             lf.with_columns((pl.col(timestamp_col).cast(pl.Int64) // MS_PER_DAY * MS_PER_DAY).alias("day_ts"))
             .group_by(["token_id", "day_ts"])
-            .agg(pl.col(price_col).cast(pl.Float64).mean().alias("price"))
+            .agg(pl.col(price_col).mean().alias("price"))
             .collect()
         )
 
@@ -255,14 +254,14 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             lf.with_columns(
                 [
                     (pl.col("timestamp").cast(pl.Int64) // MS_PER_DAY * MS_PER_DAY).alias("day_ts"),
-                    (pl.col("size").cast(pl.Float64) * pl.col("price").cast(pl.Float64)).alias("notional"),
+                    (pl.col("size") * pl.col("price")).alias("notional"),
                 ]
             )
             .group_by(["conditionId", "day_ts"])
             .agg(
                 [
                     pl.len().alias("trades"),
-                    pl.col("size").cast(pl.Float64).sum().alias("size_sum"),
+                    pl.col("size").sum().alias("size_sum"),
                     pl.col("notional").sum().alias("notional_sum"),
                 ]
             )
