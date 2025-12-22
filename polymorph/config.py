@@ -17,8 +17,10 @@ class GeneralConfig(BaseModel):
     max_concurrency: int = 12
     data_dir: str = "data"
     gamma_max_pages: int | None = None
-    gamma_max_conn: int = 100
+    gamma_max_conn: int = 400
+    gamma_ka_conn: int = 100
     clob_max_conn: int = 100
+    clob_ka_conn: int = 50
 
 
 class StorageConfig(BaseModel):
@@ -68,8 +70,10 @@ def _ensure_config_exists() -> None:
 http_timeout = 30
 max_concurrency = 12
 data_dir = "data"
-gamma_max_conn = 100
+gamma_max_conn = 400
+gamma_ka_conn = 100
 clob_max_conn = 100
+clob_ka_conn = 50
 # gamma_max_pages = 1000  # Uncomment to limit Gamma API fetches (1000 pages × 100 records = 100k max per call)
 
 [storage]
