@@ -6,6 +6,7 @@ from typing import cast
 import httpx
 import polars as pl
 
+from polymorph import __version__
 from polymorph.core.base import DataSource, PipelineContext
 from polymorph.core.rate_limit import GAMMA_RATE_LIMIT, RateLimiter, RateLimitError
 from polymorph.core.retry import with_retry
@@ -63,7 +64,7 @@ class Gamma(DataSource[pl.DataFrame]):
                 http2=True,
                 limits=limits,
                 headers={
-                    "User-Agent": "polymorph/0.3.1 (httpx; +https://github.com/lattica/polymorph)",
+                    "User-Agent": f"polymorph/{__version__} (httpx; +https://github.com/lattica/polymorph)",
                 },
             )
         return self._client
