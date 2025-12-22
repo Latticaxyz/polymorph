@@ -65,6 +65,10 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
                 }
             )
 
+    class DummyRateLimiter:
+        def get_rps(self, window_seconds: float = 10.0) -> float:
+            return 0.0
+
     class DummyClob:
         def __init__(self) -> None:
             self.price_calls: list[str] = []
@@ -72,12 +76,16 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
             self.orderbook_calls: list[str] = []
             self.spread_calls: list[str] = []
             self.trades_called = False
+            self._rate_limiter = DummyRateLimiter()
 
         async def __aenter__(self) -> "DummyClob":
             return self
 
         async def __aexit__(self, _exc_type, _exc, _tb) -> None:
             return None
+
+        async def _get_clob_rate_limiter(self) -> DummyRateLimiter:
+            return self._rate_limiter
 
         async def fetch_prices_history(
             self,
@@ -86,6 +94,8 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
             end_ts: int | None = None,
             interval: str | None = None,
             fidelity: int | None = None,
+            cache: object = None,
+            created_at_ts: int | None = None,
         ) -> pl.DataFrame:
             self.price_calls.append(token_id)
             self.price_params.append(

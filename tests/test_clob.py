@@ -555,7 +555,7 @@ async def test_user_agent_format(tmp_path: Path) -> None:
     user_agent = client.headers.get("User-Agent")
     assert user_agent is not None
 
-    assert "polymorph/0.2.1" in user_agent, "User-Agent should include version number"
+    assert "polymorph/0.3.1" in user_agent, "User-Agent should include version number"
     assert "httpx" in user_agent.lower(), "User-Agent should mention httpx"
 
     await clob.close()
