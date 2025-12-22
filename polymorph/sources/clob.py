@@ -71,13 +71,13 @@ class CLOB(DataSource[pl.DataFrame]):
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             limits = httpx.Limits(
-                max_connections=400,
-                max_keepalive_connections=100,
+                max_connections=100,
+                max_keepalive_connections=50,
                 keepalive_expiry=30.0,
             )
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.context.http_timeout, connect=10.0),
-                http2=True,
+                http2=False,
                 limits=limits,
                 headers={
                     "User-Agent": f"polymorph/{__version__} (httpx; +https://github.com/lattica/polymorph)",
