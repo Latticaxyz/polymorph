@@ -7,6 +7,7 @@ import httpx
 import polars as pl
 
 from polymorph.core.base import DataSource, PipelineContext
+from polymorph.core.fetch_cache import CacheKey, FetchCache
 from polymorph.core.rate_limit import CLOB_RATE_LIMIT, DATA_API_RATE_LIMIT, RateLimiter, RateLimitError
 from polymorph.core.retry import with_retry
 from polymorph.models.api import OrderBook, OrderBookLevel
@@ -68,11 +69,17 @@ class CLOB(DataSource[pl.DataFrame]):
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
+            limits = httpx.Limits(
+                max_connections=400,
+                max_keepalive_connections=100,
+                keepalive_expiry=30.0,
+            )
             self._client = httpx.AsyncClient(
-                timeout=self.context.http_timeout,
+                timeout=httpx.Timeout(self.context.http_timeout, connect=10.0),
                 http2=True,
+                limits=limits,
                 headers={
-                    "User-Agent": "polymorph/0.2.1 (httpx; +https://github.com/lattica/polymorph)",
+                    "User-Agent": "polymorph/0.3.1 (httpx; +https://github.com/lattica/polymorph)",
                 },
             )
         return self._client
@@ -224,6 +231,9 @@ class CLOB(DataSource[pl.DataFrame]):
         end_ts: int | None = None,
         fidelity: int | None = None,
         interval: str | None = None,
+        empty_chunk_limit: int = 5,
+        cache: FetchCache | None = None,
+        created_at_ts: int | None = None,
     ) -> pl.DataFrame:
         fidelity = fidelity if fidelity is not None else self.default_fidelity
 
@@ -233,23 +243,42 @@ class CLOB(DataSource[pl.DataFrame]):
         if start_ts is None or end_ts is None:
             raise ValueError("Either 'interval' or both 'start_ts' and 'end_ts' must be provided")
 
-        # Chunk the date range to respect API's 14-day limit
-        results: list[pl.DataFrame] = []
-        current_start = start_ts
+        chunks_to_fetch: list[tuple[int, int]]
+        if cache:
+            chunks_to_fetch = list(
+                cache.get_pending_chunks(token_id, start_ts, end_ts, fidelity, CLOB_MAX_PRICE_HISTORY_MS)
+            )
+        else:
+            chunks_to_fetch = []
+            current = start_ts
+            while current < end_ts:
+                chunk_end = min(current + CLOB_MAX_PRICE_HISTORY_MS, end_ts)
+                chunks_to_fetch.append((current, chunk_end))
+                current = chunk_end + 1
 
-        while current_start < end_ts:
-            current_end = min(current_start + CLOB_MAX_PRICE_HISTORY_MS, end_ts)
-            df = await self._fetch_price_history_chunk(token_id, current_start, current_end, fidelity)
+        results: list[pl.DataFrame] = []
+        consecutive_empty = 0
+
+        for chunk_start, chunk_end in chunks_to_fetch:
+            df = await self._fetch_price_history_chunk(token_id, chunk_start, chunk_end, fidelity)
+
+            if cache:
+                cache.mark_completed(CacheKey(token_id, chunk_start, chunk_end, fidelity), df.height)
+
             if df.height > 0:
                 results.append(df)
-            current_start = current_end + 1
+                consecutive_empty = 0
+            else:
+                consecutive_empty += 1
+                can_early_stop = created_at_ts is None or chunk_start >= created_at_ts
+                if can_early_stop and consecutive_empty >= empty_chunk_limit:
+                    break
 
         if not results:
             return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Float64})
 
         combined = pl.concat(results, how="vertical")
 
-        # Deduplicate by timestamp to avoid overlaps
         if "t" in combined.columns:
             combined = combined.unique(subset=["t"], maintain_order=True)
 
