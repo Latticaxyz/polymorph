@@ -77,7 +77,7 @@ class CLOB(DataSource[pl.DataFrame]):
             )
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.context.http_timeout, connect=10.0),
-                http2=False,
+                http2=False,  # Server terminates HTTP/2 after ~20k streams; HTTP/1.1 is more reliable
                 limits=limits,
                 headers={
                     "User-Agent": f"polymorph/{__version__} (httpx; +https://github.com/lattica/polymorph)",
