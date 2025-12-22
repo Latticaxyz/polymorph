@@ -7,6 +7,7 @@ import httpx
 import polars as pl
 import pytest
 
+from polymorph import __version__
 from polymorph.config import config as base_config
 from polymorph.core.base import PipelineContext, RuntimeConfig
 from polymorph.models.api import OrderBook, OrderBookLevel
@@ -555,7 +556,7 @@ async def test_user_agent_format(tmp_path: Path) -> None:
     user_agent = client.headers.get("User-Agent")
     assert user_agent is not None
 
-    assert "polymorph/0.3.1" in user_agent, "User-Agent should include version number"
+    assert f"polymorph/{__version__}" in user_agent, "User-Agent should include version number"
     assert "httpx" in user_agent.lower(), "User-Agent should mention httpx"
 
     await clob.close()
@@ -571,7 +572,8 @@ async def test_gamma_client_has_user_agent_header(tmp_path: Path) -> None:
 
     user_agent = client.headers.get("User-Agent")
     assert user_agent is not None, "User-Agent header should be set"
-    assert "polymorph" in user_agent.lower(), "User-Agent should contain 'polymorph'"
+    assert f"polymorph/{__version__}" in user_agent, "User-Agent should include version number"
+    assert "httpx" in user_agent.lower(), "User-Agent should mention httpx"
 
     await gamma.__aexit__(None, None, None)
 
