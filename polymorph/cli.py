@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import click
+import polars as pl
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -48,6 +49,26 @@ def _version_callback(value: bool) -> None:
     if value:
         console.print(f"polymorph v{__version__}")
         raise typer.Exit()
+
+
+def _merge_part_files(directory: Path, prefix: str) -> None:
+    part_files = sorted(directory.glob(f"*_{prefix}_part*.parquet"))
+    if not part_files:
+        return
+
+    console.log(f"Merging {len(part_files)} {prefix} part files...")
+
+    timestamp_prefix = part_files[0].name.split(f"_{prefix}_part")[0]
+    merged_path = directory / f"{timestamp_prefix}_{prefix}.parquet"
+
+    dfs = [pl.read_parquet(f) for f in part_files]
+    merged = pl.concat(dfs, how="vertical")
+    merged.write_parquet(merged_path)
+
+    for f in part_files:
+        f.unlink()
+
+    console.log(f"Merged into {merged_path.name} ({merged.height} rows)")
 
 
 @app.callback()
@@ -148,6 +169,11 @@ def fetch(
         "--gamma-max-pages",
         help="Max pages to fetch from Gamma API (None = unbounded, 100 records per page)",
     ),
+    merge: bool = typer.Option(
+        False,
+        "--merge/--no-merge",
+        help="Merge part files into single parquet files after fetch",
+    ),
 ) -> None:
     time_params = [minutes, hours, days, weeks, months, years]
     time_param_count = sum(1 for p in time_params if p > 0)
@@ -213,6 +239,12 @@ def fetch(
     )
 
     asyncio.run(stage.execute())
+
+    if merge:
+        clob_dir = out / "raw" / "clob"
+        if clob_dir.exists():
+            _merge_part_files(clob_dir, "prices")
+
     console.print("Fetch complete.")
 
 
