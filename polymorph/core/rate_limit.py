@@ -71,11 +71,17 @@ class RateLimiter:
             "utilization_pct": (len(self.requests) / self.max_requests * 100),
         }
 
+    def get_rps(self, window_seconds: float = 10.0) -> float:
+        now = datetime.now()
+        cutoff = now - timedelta(seconds=window_seconds)
+        recent = sum(1 for ts in self.requests if ts >= cutoff)
+        return recent / window_seconds
+
 
 class RateLimitError(Exception):
     pass
 
 
 GAMMA_RATE_LIMIT = {"max_requests": 120, "time_window_seconds": 10}
-CLOB_RATE_LIMIT = {"max_requests": 95, "time_window_seconds": 10}
+CLOB_RATE_LIMIT = {"max_requests": 1000, "time_window_seconds": 10}
 DATA_API_RATE_LIMIT = {"max_requests": 190, "time_window_seconds": 10}
