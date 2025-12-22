@@ -53,11 +53,17 @@ class Gamma(DataSource[pl.DataFrame]):
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
+            limits = httpx.Limits(
+                max_connections=400,
+                max_keepalive_connections=100,
+                keepalive_expiry=30.0,
+            )
             self._client = httpx.AsyncClient(
-                timeout=self.context.http_timeout,
+                timeout=httpx.Timeout(self.context.http_timeout, connect=10.0),
                 http2=True,
+                limits=limits,
                 headers={
-                    "User-Agent": "polymorph/0.2.1 (httpx; +https://github.com/lattica/polymorph)",
+                    "User-Agent": "polymorph/0.3.1 (httpx; +https://github.com/lattica/polymorph)",
                 },
             )
         return self._client
