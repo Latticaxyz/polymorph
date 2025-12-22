@@ -86,7 +86,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             logger.warning("Could not build token-market mapping")
             return result
 
-        prices_pattern = prices_dir / "*_prices.parquet"
+        prices_pattern = prices_dir / "*_prices*.parquet"
 
         try:
             prices_lf = self.storage.scan(prices_pattern)
@@ -125,7 +125,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         )
 
         prices_dir = self.raw_dir / "clob"
-        prices_pattern = prices_dir / "*_prices.parquet"
+        prices_pattern = prices_dir / "*_prices*.parquet"
 
         if not self.storage._resolve_path(prices_dir).exists():
             logger.warning(f"Prices directory does not exist: {prices_dir}")
@@ -185,7 +185,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         result = ProcessResult(run_timestamp=self.context.run_timestamp)
 
         prices_dir = self.raw_dir / "clob"
-        prices_pattern = prices_dir / "*_prices.parquet"
+        prices_pattern = prices_dir / "*_prices*.parquet"
 
         if not self.storage._resolve_path(prices_dir).exists():
             logger.warning(f"Prices directory does not exist: {prices_dir}")
