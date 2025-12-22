@@ -54,3 +54,8 @@ def datetime_to_ms(dt: datetime) -> int:
 
 def ms_to_datetime(ms: int) -> datetime:
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+
+
+def parse_iso_to_ms(iso_str: str) -> int:
+    dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+    return int(dt.timestamp() * 1000)
