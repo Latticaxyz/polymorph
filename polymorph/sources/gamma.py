@@ -55,9 +55,10 @@ class Gamma(DataSource[pl.DataFrame]):
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             max_conn = self.context.config.general.gamma_max_conn
+            ka_conn = self.context.config.general.gamma_ka_conn
             limits = httpx.Limits(
                 max_connections=max_conn,
-                max_keepalive_connections=max_conn // 2,
+                max_keepalive_connections=ka_conn,
                 keepalive_expiry=30.0,
             )
             self._client = httpx.AsyncClient(
