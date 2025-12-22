@@ -13,6 +13,9 @@ def setup(level: int = logging.INFO) -> None:
         handlers=[RichHandler(rich_tracebacks=True)],
     )
 
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
