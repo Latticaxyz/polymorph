@@ -6,6 +6,7 @@ from typing import cast
 import httpx
 import polars as pl
 
+from polymorph import __version__
 from polymorph.core.base import DataSource, PipelineContext
 from polymorph.core.fetch_cache import CacheKey, FetchCache
 from polymorph.core.rate_limit import CLOB_RATE_LIMIT, DATA_API_RATE_LIMIT, RateLimiter, RateLimitError
@@ -79,7 +80,7 @@ class CLOB(DataSource[pl.DataFrame]):
                 http2=True,
                 limits=limits,
                 headers={
-                    "User-Agent": "polymorph/0.3.1 (httpx; +https://github.com/lattica/polymorph)",
+                    "User-Agent": f"polymorph/{__version__} (httpx; +https://github.com/lattica/polymorph)",
                 },
             )
         return self._client
