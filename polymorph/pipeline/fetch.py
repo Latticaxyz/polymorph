@@ -259,6 +259,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
         self.storage = context.storage
         self.gamma = Gamma(context)
         self.clob = CLOB(context)
+        self._pending_consolidations: list[tuple[Path, str]] = []
 
     @property
     def name(self) -> str:
@@ -307,6 +308,35 @@ class FetchStage(PipelineStage[None, FetchResult]):
                 )
         return jobs
 
+    def _consolidate_part_files(self, directory: Path, prefix: str) -> Path | None:
+        resolved_dir = self.storage._resolve_path(directory)
+        part_files = sorted(resolved_dir.glob(f"*_{prefix}_part*.parquet"))
+        if not part_files:
+            return None
+
+        logger.info(f"Consolidating {len(part_files)} {prefix} part files...")
+
+        timestamp_prefix = part_files[0].name.split(f"_{prefix}_part")[0]
+        merged_path = resolved_dir / f"{timestamp_prefix}_{prefix}.parquet"
+
+        dfs = [pl.read_parquet(f) for f in part_files]
+        merged = pl.concat(dfs, how="vertical")
+        merged.write_parquet(merged_path)
+
+        for f in part_files:
+            f.unlink()
+
+        logger.info(f"Consolidated into {merged_path.name} ({merged.height:,} rows)")
+        return merged_path
+
+    def _run_pending_consolidations(self) -> None:
+        for directory, prefix in self._pending_consolidations:
+            try:
+                self._consolidate_part_files(directory, prefix)
+            except Exception as e:
+                logger.warning(f"Failed to consolidate {prefix} part files: {e}")
+        self._pending_consolidations.clear()
+
     async def _fetch_with_progress(
         self,
         label: str,
@@ -350,6 +380,19 @@ class FetchStage(PipelineStage[None, FetchResult]):
         result = FetchResult(run_timestamp=self.context.run_timestamp)
         sem = asyncio.Semaphore(self.max_concurrency)
 
+        try:
+            return await self._execute_fetch(start_ts, end_ts, stamp, result, sem)
+        finally:
+            self._run_pending_consolidations()
+
+    async def _execute_fetch(
+        self,
+        start_ts: int,
+        end_ts: int,
+        stamp: str,
+        result: FetchResult,
+        sem: asyncio.Semaphore,
+    ) -> FetchResult:
         markets_df = None
         token_ids: list[str] = []
 
@@ -408,6 +451,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
                 logger.info(f"Resuming with {cached_count} cached chunk windows")
 
             base_path = Path("raw/clob") / f"{stamp}_prices.parquet"
+            self._pending_consolidations.append((base_path.parent, "prices"))
             writer = BatchResultWriter(
                 storage=self.storage,
                 base_path=base_path,
