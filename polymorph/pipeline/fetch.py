@@ -308,16 +308,16 @@ class FetchStage(PipelineStage[None, FetchResult]):
                 )
         return jobs
 
-    def _consolidate_part_files(self, directory: Path, prefix: str) -> Path | None:
-        resolved_dir = self.storage._resolve_path(directory)
-        part_files = sorted(resolved_dir.glob(f"*_{prefix}_part*.parquet"))
+    def _consolidate_part_files(self, run_dir: Path, prefix: str) -> Path | None:
+        resolved_dir = self.storage._resolve_path(run_dir)
+        pattern = f"{prefix}_part*.parquet"
+        part_files = sorted(resolved_dir.glob(pattern))
         if not part_files:
             return None
 
-        logger.info(f"Consolidating {len(part_files)} {prefix} part files...")
+        logger.info(f"Consolidating {len(part_files)} {prefix} part files in {run_dir}...")
 
-        timestamp_prefix = part_files[0].name.split(f"_{prefix}_part")[0]
-        merged_path = resolved_dir / f"{timestamp_prefix}_{prefix}.parquet"
+        merged_path = resolved_dir / f"{prefix}.parquet"
 
         dfs = [pl.read_parquet(f) for f in part_files]
         merged = pl.concat(dfs, how="vertical")
@@ -330,11 +330,11 @@ class FetchStage(PipelineStage[None, FetchResult]):
         return merged_path
 
     def _run_pending_consolidations(self) -> None:
-        for directory, prefix in self._pending_consolidations:
+        for run_dir, prefix in self._pending_consolidations:
             try:
-                self._consolidate_part_files(directory, prefix)
+                self._consolidate_part_files(run_dir, prefix)
             except Exception as e:
-                logger.warning(f"Failed to consolidate {prefix} part files: {e}")
+                logger.warning(f"Failed to consolidate {prefix} part files in {run_dir}: {e}")
         self._pending_consolidations.clear()
 
     async def _fetch_with_progress(
@@ -395,6 +395,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
     ) -> FetchResult:
         markets_df = None
         token_ids: list[str] = []
+        run_dir = Path("raw") / stamp
 
         if self.include_gamma:
             progress = FetchProgress("markets")
@@ -427,7 +428,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         pl.lit("/markets").alias("_api_endpoint"),
                     ]
                 )
-                path = Path("raw/gamma") / f"{stamp}_markets.parquet"
+                path = run_dir / "markets.parquet"
                 self.storage.write(markets_df, path)
                 result.markets_path = self.storage._resolve_path(path)
                 result.market_count = markets_df.height
@@ -450,8 +451,8 @@ class FetchStage(PipelineStage[None, FetchResult]):
             if cached_count > 0:
                 logger.info(f"Resuming with {cached_count} cached chunk windows")
 
-            base_path = Path("raw/clob") / f"{stamp}_prices.parquet"
-            self._pending_consolidations.append((base_path.parent, "prices"))
+            base_path = run_dir / "prices.parquet"
+            self._pending_consolidations.append((run_dir, "prices"))
             writer = BatchResultWriter(
                 storage=self.storage,
                 base_path=base_path,
@@ -483,7 +484,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
 
                 total_written, part_count = writer.finalize()
                 if total_written > 0:
-                    result.prices_path = self.storage._resolve_path(base_path.parent)
+                    result.prices_path = self.storage._resolve_path(run_dir)
                     result.price_point_count = total_written
                     logger.info(f"Wrote {total_written} price points across {part_count} part files")
             finally:
@@ -533,7 +534,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         pl.lit("/book").alias("_api_endpoint"),
                     ]
                 )
-                path = Path("raw/clob") / f"{stamp}_orderbooks.parquet"
+                path = run_dir / "orderbooks.parquet"
                 self.storage.write(df, path)
                 result.orderbooks_path = self.storage._resolve_path(path)
                 result.orderbook_levels = df.height
@@ -557,7 +558,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         pl.lit("/book").alias("_api_endpoint"),
                     ]
                 )
-                path = Path("raw/clob") / f"{stamp}_spreads.parquet"
+                path = run_dir / "spreads.parquet"
                 self.storage.write(df, path)
                 result.spreads_path = self.storage._resolve_path(path)
                 result.spreads_count = df.height
@@ -593,7 +594,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         pl.lit("/trades").alias("_api_endpoint"),
                     ]
                 )
-                path = Path("raw/data_api") / f"{stamp}_trades.parquet"
+                path = run_dir / "trades.parquet"
                 self.storage.write(trades_df, path)
                 result.trades_path = self.storage._resolve_path(path)
                 result.trade_count = trades_df.height
