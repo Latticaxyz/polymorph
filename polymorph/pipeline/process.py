@@ -35,16 +35,14 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         return "process"
 
     def _build_token_market_map(self) -> pl.LazyFrame | None:
-        gamma_dir = self.raw_dir / "gamma"
-
-        if not self.storage._resolve_path(gamma_dir).exists():
-            logger.warning(f"Gamma directory does not exist: {gamma_dir}")
+        if not self.storage._resolve_path(self.raw_dir).exists():
+            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
             return None
 
-        gamma_pattern = gamma_dir / "*_markets.parquet"
+        markets_pattern = self.raw_dir / "*" / "markets.parquet"
 
         try:
-            lf = self.storage.scan(gamma_pattern)
+            lf = self.storage.scan(markets_pattern)
         except Exception as e:
             logger.warning(f"Could not scan markets: {e}")
             return None
@@ -76,9 +74,8 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
 
         result = ProcessResult(run_timestamp=self.context.run_timestamp)
 
-        prices_dir = self.raw_dir / "clob"
-        if not self.storage._resolve_path(prices_dir).exists():
-            logger.warning(f"Prices directory does not exist: {prices_dir}")
+        if not self.storage._resolve_path(self.raw_dir).exists():
+            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
             return result
 
         token_map = self._build_token_market_map()
@@ -86,7 +83,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             logger.warning("Could not build token-market mapping")
             return result
 
-        prices_pattern = prices_dir / "*_prices*.parquet"
+        prices_pattern = self.raw_dir / "*" / "prices*.parquet"
 
         try:
             prices_lf = self.storage.scan(prices_pattern)
@@ -124,12 +121,11 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             run_timestamp=self.context.run_timestamp,
         )
 
-        prices_dir = self.raw_dir / "clob"
-        prices_pattern = prices_dir / "*_prices*.parquet"
-
-        if not self.storage._resolve_path(prices_dir).exists():
-            logger.warning(f"Prices directory does not exist: {prices_dir}")
+        if not self.storage._resolve_path(self.raw_dir).exists():
+            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
             return result
+
+        prices_pattern = self.raw_dir / "*" / "prices*.parquet"
 
         try:
             lf = self.storage.scan(prices_pattern)
@@ -184,12 +180,11 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
 
         result = ProcessResult(run_timestamp=self.context.run_timestamp)
 
-        prices_dir = self.raw_dir / "clob"
-        prices_pattern = prices_dir / "*_prices*.parquet"
-
-        if not self.storage._resolve_path(prices_dir).exists():
-            logger.warning(f"Prices directory does not exist: {prices_dir}")
+        if not self.storage._resolve_path(self.raw_dir).exists():
+            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
             return result
+
+        prices_pattern = self.raw_dir / "*" / "prices*.parquet"
 
         try:
             lf = self.storage.scan(prices_pattern)
@@ -230,12 +225,11 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             run_timestamp=self.context.run_timestamp,
         )
 
-        trades_dir = self.raw_dir / "data_api"
-        trades_pattern = trades_dir / "*_trades.parquet"
-
-        if not self.storage._resolve_path(trades_dir).exists():
-            logger.warning(f"Data API trades directory does not exist: {trades_dir}")
+        if not self.storage._resolve_path(self.raw_dir).exists():
+            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
             return result
+
+        trades_pattern = self.raw_dir / "*" / "trades.parquet"
 
         try:
             lf = self.storage.scan(trades_pattern)
