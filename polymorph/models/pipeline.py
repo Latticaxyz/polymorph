@@ -1,8 +1,26 @@
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+@dataclass
+class ProcessInputConfig:
+    raw_dir: Path | None = None
+    run_dir: Path | None = None
+    markets_file: Path | None = None
+    prices_file: Path | None = None
+    trades_file: Path | None = None
+
+    @property
+    def mode(self) -> str:
+        if self.run_dir is not None:
+            return "run_dir"
+        if any([self.markets_file, self.prices_file, self.trades_file]):
+            return "explicit_files"
+        return "scan"
 
 
 class FetchResult(BaseModel):
@@ -18,6 +36,7 @@ class FetchResult(BaseModel):
     token_count: int = 0
     trade_count: int = 0
     price_point_count: int = 0
+    processed_dir: Path | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"arbitrary_types_allowed": True}
