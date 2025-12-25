@@ -13,16 +13,20 @@ from rich.table import Table
 from polymorph import __version__
 from polymorph.config import config
 from polymorph.core.base import PipelineContext, RuntimeConfig
-from polymorph.models.pipeline import ProcessResult
+from polymorph.models.pipeline import ProcessInputConfig, ProcessResult
 from polymorph.pipeline import FetchStage, ProcessStage
 from polymorph.utils.logging import setup as setup_logging
-
-click.Context.formatter_class = click.HelpFormatter
+from polymorph.utils.schema import (
+    discover_files,
+    validate_markets_schema,
+    validate_prices_schema,
+    validate_trades_schema,
+)
 
 app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
-    rich_markup_mode=None,
+    rich_markup_mode="rich",
     pretty_exceptions_enable=False,
 )
 console = Console()
@@ -220,57 +224,220 @@ def fetch(
 @app.command(help="Process raw data into analytical formats")
 def process(
     ctx: typer.Context,
-    raw_dir: Path = typer.Option(
+    run_dir: Path = typer.Option(
         None,
-        "--raw-dir",
-        "-r",
-        help="Input directory for raw data (default: data/raw)",
+        "--dir",
+        "-d",
+        help="Directory to scan for parquet files",
+        rich_help_panel="Input Sources",
+    ),
+    markets_file: Path = typer.Option(
+        None,
+        "--markets",
+        "-m",
+        help="Markets file",
+        rich_help_panel="Input Sources",
+    ),
+    prices_file: Path = typer.Option(
+        None,
+        "--prices",
+        "-p",
+        help="Prices file",
+        rich_help_panel="Input Sources",
+    ),
+    trades_input_file: Path = typer.Option(
+        None,
+        "--trades-file",
+        "-t",
+        help="Trades file",
+        rich_help_panel="Input Sources",
     ),
     out: Path = typer.Option(
         None,
         "--out",
         "-o",
-        help="Output directory for processed data (default: data/processed)",
+        help="Output directory (default: data/processed)",
+        rich_help_panel="Output",
     ),
-    enriched: bool = typer.Option(True, "--enriched/--no-enriched", help="Build enriched raw prices"),
-    returns: bool = typer.Option(True, "--returns/--no-returns", help="Build daily returns"),
-    panel: bool = typer.Option(True, "--panel/--no-panel", help="Build wide-format price panel"),
-    trades: bool = typer.Option(True, "--trades/--no-trades", help="Build trade aggregates"),
+    enriched: str = typer.Option(
+        "true",
+        "--enriched",
+        help="Build enriched prices (true/false)",
+        rich_help_panel="Processing Steps",
+    ),
+    returns: str = typer.Option(
+        "true",
+        "--returns",
+        help="Build daily returns (true/false)",
+        rich_help_panel="Processing Steps",
+    ),
+    panel: str = typer.Option(
+        "true",
+        "--panel",
+        help="Build price panel (true/false)",
+        rich_help_panel="Processing Steps",
+    ),
+    trades: str = typer.Option(
+        "true",
+        "--trades",
+        help="Build trade aggregates (true/false)",
+        rich_help_panel="Processing Steps",
+    ),
 ) -> None:
+    do_enriched = enriched.lower() in ("true", "1", "yes", "on")
+    do_returns = returns.lower() in ("true", "1", "yes", "on")
+    do_panel = panel.lower() in ("true", "1", "yes", "on")
+    do_trades = trades.lower() in ("true", "1", "yes", "on")
     runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
     data_dir = Path(runtime_config.data_dir) if runtime_config.data_dir else _DEFAULT_DATA_DIR
     context = create_context(data_dir, runtime_config=runtime_config)
 
-    console.log(
-        f"data_dir={data_dir}, raw_dir={raw_dir}, out={out}, "
-        f"enriched={enriched}, returns={returns}, panel={panel}, trades={trades}"
-    )
+    has_run_dir = run_dir is not None
+    has_file_paths = any([markets_file, prices_file, trades_input_file])
+
+    if not has_run_dir and not has_file_paths:
+        console.print("[red]Error: Must specify either --dir or explicit file paths[/red]")
+        console.print("\nExamples:")
+        console.print("  polymorph process --dir raw/20251223T201757Z")
+        console.print("  polymorph process --markets my_markets.parquet --prices my_prices.parquet")
+        raise typer.Exit(1)
+
+    if has_run_dir and has_file_paths:
+        console.print("[red]Error: --dir cannot be combined with --markets, --prices, or --trades-file[/red]")
+        raise typer.Exit(1)
+
+    errors: list[str] = []
+    discovered_markets: Path | None = None
+    discovered_prices: list[Path] = []
+    discovered_trades: Path | None = None
+
+    if has_run_dir:
+        resolved_run_dir = run_dir if run_dir.is_absolute() else data_dir / run_dir
+        if not resolved_run_dir.exists():
+            console.print(f"[red]Error: Directory not found: {resolved_run_dir}[/red]")
+            raise typer.Exit(1)
+
+        discovered = discover_files(resolved_run_dir)
+        discovered_markets = discovered.markets
+        discovered_prices = discovered.prices
+        discovered_trades = discovered.trades
+
+        if discovered.unknown:
+            console.print(f"[yellow]Unrecognized files (skipped): {[f.name for f in discovered.unknown]}[/yellow]")
+
+        if do_enriched and not discovered.has_markets():
+            errors.append("No markets file found (needs columns: id, token_ids)")
+        if do_enriched and not discovered.has_prices():
+            errors.append("No prices file found (needs columns: token_id + t/p or timestamp/price)")
+        if do_returns and not discovered.has_prices():
+            errors.append("No prices file found (needs columns: token_id + t/p or timestamp/price)")
+        if do_panel and not discovered.has_prices():
+            errors.append("No prices file found (needs columns: token_id + t/p or timestamp/price)")
+        if do_trades and not discovered.has_trades():
+            errors.append("No trades file found (needs columns: timestamp, size, price, conditionId)")
+
+        seen_errors: set[str] = set()
+        unique_errors = []
+        for e in errors:
+            if e not in seen_errors:
+                seen_errors.add(e)
+                unique_errors.append(e)
+        errors = unique_errors
+
+        if errors:
+            console.print(f"[red]Missing required files in {resolved_run_dir}:[/red]")
+            for err in errors:
+                console.print(f"  [red]• {err}[/red]")
+            raise typer.Exit(1)
+
+        if discovered.has_markets():
+            console.print(f"  Markets: {discovered.markets.name}")  # type: ignore[union-attr]
+        if discovered.has_prices():
+            console.print(f"  Prices:  {[p.name for p in discovered.prices]}")
+        if discovered.has_trades():
+            console.print(f"  Trades:  {discovered.trades.name}")  # type: ignore[union-attr]
+
+    if has_file_paths:
+        needs_markets = do_enriched
+        needs_prices = do_enriched or do_returns or do_panel
+        needs_trades = do_trades
+
+        if needs_markets:
+            if markets_file is None:
+                errors.append("--markets required (for --enriched)")
+            elif not markets_file.exists():
+                errors.append(f"File not found: {markets_file}")
+            else:
+                valid, msg = validate_markets_schema(markets_file)
+                if not valid:
+                    errors.append(f"Invalid markets file: {msg}")
+
+        if needs_prices:
+            if prices_file is None:
+                errors.append("--prices required (for --enriched/--returns/--panel)")
+            elif not prices_file.exists():
+                errors.append(f"File not found: {prices_file}")
+            else:
+                valid, msg = validate_prices_schema(prices_file)
+                if not valid:
+                    errors.append(f"Invalid prices file: {msg}")
+
+        if needs_trades:
+            if trades_input_file is None:
+                errors.append("--trades-file required (for --trades)")
+            elif not trades_input_file.exists():
+                errors.append(f"File not found: {trades_input_file}")
+            else:
+                valid, msg = validate_trades_schema(trades_input_file)
+                if not valid:
+                    errors.append(f"Invalid trades file: {msg}")
+
+        if errors:
+            console.print("[red]Input validation failed:[/red]")
+            for err in errors:
+                console.print(f"  [red]• {err}[/red]")
+            raise typer.Exit(1)
+
+    if has_run_dir:
+        input_config = ProcessInputConfig(
+            markets_file=discovered_markets,
+            prices_file=discovered_prices[0] if discovered_prices else None,
+            trades_file=discovered_trades,
+        )
+    else:
+        input_config = ProcessInputConfig(
+            markets_file=markets_file,
+            prices_file=prices_file,
+            trades_file=trades_input_file,
+        )
+
+    console.log(f"Processing: mode={input_config.mode}, out={out or 'data/processed'}")
 
     stage = ProcessStage(
         context=context,
-        raw_dir=raw_dir,
         processed_dir=out,
+        input_config=input_config,
     )
 
     result = ProcessResult(run_timestamp=context.run_timestamp)
 
-    if enriched:
+    if do_enriched:
         r = stage.build_enriched_prices()
         result.prices_enriched_path = r.prices_enriched_path
         result.enriched_count = r.enriched_count
 
-    if returns:
+    if do_returns:
         r = stage.build_daily_returns()
         result.daily_returns_path = r.daily_returns_path
         result.returns_count = r.returns_count
 
-    if panel:
+    if do_panel:
         r = stage.build_price_panel()
         result.price_panel_path = r.price_panel_path
         result.panel_days = r.panel_days
         result.panel_tokens = r.panel_tokens
 
-    if trades:
+    if do_trades:
         r = stage.build_trade_aggregates()
         result.trades_daily_agg_path = r.trades_daily_agg_path
         result.trade_agg_count = r.trade_agg_count
@@ -296,7 +463,13 @@ def process(
 
 
 def main() -> None:
-    app()
+    try:
+        app(standalone_mode=False)
+    except click.UsageError as e:
+        console.print(f"[red]Error: {e.format_message()}[/red]")
+        raise SystemExit(1) from None
+    except click.exceptions.Exit as e:
+        raise SystemExit(e.exit_code) from None
 
 
 if __name__ == "__main__":
