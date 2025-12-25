@@ -315,27 +315,63 @@ class FetchStage(PipelineStage[None, FetchResult]):
         if not part_files:
             return None
 
-        logger.info(f"Consolidating {len(part_files)} {prefix} part files in {run_dir}...")
+        run_name = run_dir.name if run_dir.name else run_dir.parts[-1]
+        processed_dir = Path("processed") / f"{run_name}_processed"
 
-        merged_path = resolved_dir / f"{prefix}.parquet"
+        logger.info(f"Consolidating {len(part_files)} {prefix} part files from {run_dir} to {processed_dir}...")
+
+        merged_path = processed_dir / f"{prefix}.parquet"
 
         dfs = [pl.read_parquet(f) for f in part_files]
         merged = pl.concat(dfs, how="vertical")
-        merged.write_parquet(merged_path)
+        self.storage.write(merged, merged_path)
 
-        for f in part_files:
-            f.unlink()
+        logger.info(
+            f"Consolidated {prefix} into {merged_path} ({merged.height:,} rows). " f"Part files retained in {run_dir}."
+        )
+        return self.storage._resolve_path(merged_path)
 
-        logger.info(f"Consolidated into {merged_path.name} ({merged.height:,} rows)")
-        return merged_path
+    def _copy_non_part_files_to_processed(self, run_dir: Path) -> None:
+        resolved_dir = self.storage._resolve_path(run_dir)
+        run_name = run_dir.name if run_dir.name else run_dir.parts[-1]
+        processed_dir = Path("processed") / f"{run_name}_processed"
 
-    def _run_pending_consolidations(self) -> None:
+        files_to_copy = ["markets.parquet", "trades.parquet", "orderbooks.parquet", "spreads.parquet"]
+
+        for filename in files_to_copy:
+            src_path = resolved_dir / filename
+            if src_path.exists():
+                try:
+                    df = pl.read_parquet(src_path)
+                    dst_path = processed_dir / filename
+                    self.storage.write(df, dst_path)
+                    logger.info(f"Copied {filename} to {processed_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to copy {filename} to processed dir: {e}")
+
+    def _run_pending_consolidations(self) -> tuple[Path | None, bool]:
+        processed_dir: Path | None = None
+        any_consolidated = False
+
         for run_dir, prefix in self._pending_consolidations:
             try:
-                self._consolidate_part_files(run_dir, prefix)
+                consolidated_path = self._consolidate_part_files(run_dir, prefix)
+                if consolidated_path:
+                    any_consolidated = True
+                    run_name = run_dir.name if run_dir.name else run_dir.parts[-1]
+                    processed_dir = self.storage._resolve_path(Path("processed") / f"{run_name}_processed")
             except Exception as e:
                 logger.warning(f"Failed to consolidate {prefix} part files in {run_dir}: {e}")
+
+        if any_consolidated and self._pending_consolidations:
+            run_dir = self._pending_consolidations[0][0]
+            try:
+                self._copy_non_part_files_to_processed(run_dir)
+            except Exception as e:
+                logger.warning(f"Failed to copy non-part files: {e}")
+
         self._pending_consolidations.clear()
+        return processed_dir, any_consolidated
 
     async def _fetch_with_progress(
         self,
@@ -381,9 +417,13 @@ class FetchStage(PipelineStage[None, FetchResult]):
         sem = asyncio.Semaphore(self.max_concurrency)
 
         try:
-            return await self._execute_fetch(start_ts, end_ts, stamp, result, sem)
+            result = await self._execute_fetch(start_ts, end_ts, stamp, result, sem)
         finally:
-            self._run_pending_consolidations()
+            processed_dir, _ = self._run_pending_consolidations()
+            if processed_dir:
+                result.processed_dir = processed_dir
+
+        return result
 
     async def _execute_fetch(
         self,
