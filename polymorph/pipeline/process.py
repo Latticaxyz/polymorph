@@ -3,7 +3,7 @@ from pathlib import Path
 import polars as pl
 
 from polymorph.core.base import PipelineContext, PipelineStage
-from polymorph.models.pipeline import FetchResult, ProcessResult
+from polymorph.models.pipeline import FetchResult, ProcessInputConfig, ProcessResult
 from polymorph.utils.constants import MS_PER_DAY
 from polymorph.utils.logging import get_logger
 
@@ -16,6 +16,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
         context: PipelineContext,
         raw_dir: str | Path | None = None,
         processed_dir: str | Path | None = None,
+        input_config: ProcessInputConfig | None = None,
     ):
         super().__init__(context)
 
@@ -23,6 +24,7 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
 
         self.raw_dir = Path(raw_dir) if raw_dir else Path("raw")
         self.processed_dir = Path(processed_dir) if processed_dir else Path("processed")
+        self.input_config = input_config or ProcessInputConfig(raw_dir=self.raw_dir)
 
     def _stamp(self) -> str:
         return self.context.run_timestamp.strftime("%Y%m%dT%H%M%SZ")
@@ -34,17 +36,129 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
     def name(self) -> str:
         return "process"
 
-    def _build_token_market_map(self) -> pl.LazyFrame | None:
+    def _load_markets(self) -> pl.LazyFrame | None:
+        mode = self.input_config.mode
+
+        if mode == "explicit_files":
+            if self.input_config.markets_file is None:
+                return None
+            try:
+                return pl.scan_parquet(str(self.input_config.markets_file))
+            except Exception as e:
+                logger.warning(f"Could not load markets file: {e}")
+                return None
+
+        if mode == "run_dir":
+            if self.input_config.run_dir is None:
+                return None
+            markets_path = self.input_config.run_dir / "markets.parquet"
+            resolved = self.storage._resolve_path(markets_path)
+            if not resolved.exists():
+                logger.warning(f"Markets file not found: {resolved}")
+                return None
+            try:
+                return pl.scan_parquet(str(resolved))
+            except Exception as e:
+                logger.warning(f"Could not load markets from run_dir: {e}")
+                return None
+
         if not self.storage._resolve_path(self.raw_dir).exists():
             logger.warning(f"Raw directory does not exist: {self.raw_dir}")
             return None
 
         markets_pattern = self.raw_dir / "*" / "markets.parquet"
-
         try:
-            lf = self.storage.scan(markets_pattern)
+            return self.storage.scan(markets_pattern)
         except Exception as e:
             logger.warning(f"Could not scan markets: {e}")
+            return None
+
+    def _load_prices(self) -> pl.LazyFrame | None:
+        mode = self.input_config.mode
+
+        if mode == "explicit_files":
+            if self.input_config.prices_file is None:
+                return None
+            try:
+                return pl.scan_parquet(str(self.input_config.prices_file))
+            except Exception as e:
+                logger.warning(f"Could not load prices file: {e}")
+                return None
+
+        if mode == "run_dir":
+            if self.input_config.run_dir is None:
+                return None
+            prices_path = self.input_config.run_dir / "prices.parquet"
+            resolved = self.storage._resolve_path(prices_path)
+            if resolved.exists():
+                try:
+                    return pl.scan_parquet(str(resolved))
+                except Exception as e:
+                    logger.warning(f"Could not load consolidated prices: {e}")
+
+            resolved_dir = self.storage._resolve_path(self.input_config.run_dir)
+            part_files = list(resolved_dir.glob("prices_part*.parquet"))
+            if part_files:
+                try:
+                    return pl.scan_parquet([str(f) for f in sorted(part_files)])
+                except Exception as e:
+                    logger.warning(f"Could not load prices part files: {e}")
+                    return None
+
+            logger.warning(f"No prices files found in run_dir: {resolved_dir}")
+            return None
+
+        if not self.storage._resolve_path(self.raw_dir).exists():
+            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
+            return None
+
+        prices_pattern = self.raw_dir / "*" / "prices*.parquet"
+        try:
+            return self.storage.scan(prices_pattern)
+        except Exception as e:
+            logger.warning(f"Could not scan prices: {e}")
+            return None
+
+    def _load_trades(self) -> pl.LazyFrame | None:
+        mode = self.input_config.mode
+
+        if mode == "explicit_files":
+            if self.input_config.trades_file is None:
+                return None
+            try:
+                return pl.scan_parquet(str(self.input_config.trades_file))
+            except Exception as e:
+                logger.warning(f"Could not load trades file: {e}")
+                return None
+
+        if mode == "run_dir":
+            if self.input_config.run_dir is None:
+                return None
+            trades_path = self.input_config.run_dir / "trades.parquet"
+            resolved = self.storage._resolve_path(trades_path)
+            if not resolved.exists():
+                logger.warning(f"Trades file not found: {resolved}")
+                return None
+            try:
+                return pl.scan_parquet(str(resolved))
+            except Exception as e:
+                logger.warning(f"Could not load trades from run_dir: {e}")
+                return None
+
+        if not self.storage._resolve_path(self.raw_dir).exists():
+            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
+            return None
+
+        trades_pattern = self.raw_dir / "*" / "trades.parquet"
+        try:
+            return self.storage.scan(trades_pattern)
+        except Exception as e:
+            logger.warning(f"Could not scan trades: {e}")
+            return None
+
+    def _build_token_market_map(self) -> pl.LazyFrame | None:
+        lf = self._load_markets()
+        if lf is None:
             return None
 
         return (
@@ -74,21 +188,14 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
 
         result = ProcessResult(run_timestamp=self.context.run_timestamp)
 
-        if not self.storage._resolve_path(self.raw_dir).exists():
-            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
-            return result
-
         token_map = self._build_token_market_map()
         if token_map is None:
             logger.warning("Could not build token-market mapping")
             return result
 
-        prices_pattern = self.raw_dir / "*" / "prices*.parquet"
-
-        try:
-            prices_lf = self.storage.scan(prices_pattern)
-        except Exception as e:
-            logger.warning(f"Could not scan prices: {e}")
+        prices_lf = self._load_prices()
+        if prices_lf is None:
+            logger.warning("Could not load prices data")
             return result
 
         schema = prices_lf.collect_schema()
@@ -121,16 +228,9 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             run_timestamp=self.context.run_timestamp,
         )
 
-        if not self.storage._resolve_path(self.raw_dir).exists():
-            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
-            return result
-
-        prices_pattern = self.raw_dir / "*" / "prices*.parquet"
-
-        try:
-            lf = self.storage.scan(prices_pattern)
-        except Exception as e:
-            logger.warning(f"Could not scan prices: {e}")
+        lf = self._load_prices()
+        if lf is None:
+            logger.warning("Could not load prices data")
             return result
 
         schema = lf.collect_schema()
@@ -180,16 +280,9 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
 
         result = ProcessResult(run_timestamp=self.context.run_timestamp)
 
-        if not self.storage._resolve_path(self.raw_dir).exists():
-            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
-            return result
-
-        prices_pattern = self.raw_dir / "*" / "prices*.parquet"
-
-        try:
-            lf = self.storage.scan(prices_pattern)
-        except Exception as e:
-            logger.warning(f"Could not scan prices: {e}")
+        lf = self._load_prices()
+        if lf is None:
+            logger.warning("Could not load prices data")
             return result
 
         schema = lf.collect_schema()
@@ -225,16 +318,9 @@ class ProcessStage(PipelineStage[FetchResult | None, ProcessResult]):
             run_timestamp=self.context.run_timestamp,
         )
 
-        if not self.storage._resolve_path(self.raw_dir).exists():
-            logger.warning(f"Raw directory does not exist: {self.raw_dir}")
-            return result
-
-        trades_pattern = self.raw_dir / "*" / "trades.parquet"
-
-        try:
-            lf = self.storage.scan(trades_pattern)
-        except Exception as e:
-            logger.warning(f"Could not scan trades: {e}")
+        lf = self._load_trades()
+        if lf is None:
+            logger.warning("Could not load trades data")
             return result
 
         schema = lf.collect_schema()
