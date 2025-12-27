@@ -167,7 +167,7 @@ class FetchStage:
         self._pending_consolidations: list[tuple[Path, str]] = []
 
     def _stamp(self) -> str:
-        return self.context.run_timestamp.strftime("%Y%m%dT%H%M%SZ")
+        return self.context.run_name
 
     def _build_token_jobs(
         self,
