@@ -13,6 +13,7 @@ from polymorph.utils.constants import (
     TRADES_FILENAME,
 )
 from polymorph.utils.logging import get_logger
+from polymorph.utils.paths import unique_path
 
 logger = get_logger(__name__)
 
@@ -194,9 +195,10 @@ class ProcessStage:
             logger.warning("No joined prices after join")
             return result
 
-        output_path = self._output_dir() / "prices_joined.parquet"
+        base_path = self._output_dir() / "prices_joined.parquet"
+        output_path = unique_path(self.storage._resolve_path(base_path))
         self.storage.write(joined, output_path)
-        result.prices_joined_path = self.storage._resolve_path(output_path)
+        result.prices_joined_path = output_path
         result.joined_count = joined.height
 
         logger.info(f"Joined prices built: {result.joined_count} rows -> {output_path}")
@@ -247,9 +249,10 @@ class ProcessStage:
         else:
             daily_returns = daily_prices.collect()
 
-        output_path = self._output_dir() / "daily_returns.parquet"
+        base_path = self._output_dir() / "daily_returns.parquet"
+        output_path = unique_path(self.storage._resolve_path(base_path))
         self.storage.write(daily_returns, output_path)
-        result.daily_returns_path = self.storage._resolve_path(output_path)
+        result.daily_returns_path = output_path
         result.returns_count = daily_returns.height
 
         logger.info(f"Daily returns built: {result.returns_count} rows -> {output_path}")
@@ -283,9 +286,10 @@ class ProcessStage:
 
         panel = daily_prices.pivot(on="token_id", index="day_ts", values="price").sort("day_ts")
 
-        output_path = self._output_dir() / "price_panel.parquet"
+        base_path = self._output_dir() / "price_panel.parquet"
+        output_path = unique_path(self.storage._resolve_path(base_path))
         self.storage.write(panel, output_path)
-        result.price_panel_path = self.storage._resolve_path(output_path)
+        result.price_panel_path = output_path
         result.panel_days = panel.height
         result.panel_tokens = panel.width - 1
 
@@ -329,9 +333,10 @@ class ProcessStage:
             .collect()
         )
 
-        output_path = self._output_dir() / "trades_daily_agg.parquet"
+        base_path = self._output_dir() / "trades_daily_agg.parquet"
+        output_path = unique_path(self.storage._resolve_path(base_path))
         self.storage.write(trade_agg, output_path)
-        result.trades_daily_agg_path = self.storage._resolve_path(output_path)
+        result.trades_daily_agg_path = output_path
         result.trade_agg_count = trade_agg.height
 
         logger.info(f"Trade aggregates built: {result.trade_agg_count} rows -> {output_path}")
