@@ -543,10 +543,10 @@ def process(
     console.print("Process complete.")
 
 
-@app.command(help="Filter prices_joined.parquet by various criteria")
+@app.command(help="Filter joined data by various criteria")
 def filter(
     ctx: typer.Context,
-    input_file: Path = typer.Argument(..., help="Path to prices_joined.parquet"),
+    input_file: Path = typer.Argument(..., help="Path to joined parquet"),
     out: Path = typer.Option(
         None,
         "--out",
