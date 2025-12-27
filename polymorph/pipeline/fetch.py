@@ -21,6 +21,7 @@ from polymorph.models.pipeline import FetchResult
 from polymorph.sources.clob import CLOB
 from polymorph.sources.gamma import Gamma
 from polymorph.utils.logging import get_logger
+from polymorph.utils.paths import unique_path
 from polymorph.utils.time import datetime_to_ms, parse_iso_to_ms, time_delta_ms, utc
 
 T = TypeVar("T")
@@ -221,7 +222,8 @@ class FetchStage:
 
         logger.info(f"Consolidating {len(part_files)} {prefix} part files from {run_dir} to {processed_dir}...")
 
-        merged_path = processed_dir / f"{prefix}.parquet"
+        base_path = processed_dir / f"{prefix}.parquet"
+        merged_path = unique_path(self.storage._resolve_path(base_path))
 
         dfs = [pl.read_parquet(f) for f in part_files]
         merged = pl.concat(dfs, how="vertical")
@@ -230,7 +232,7 @@ class FetchStage:
         logger.info(
             f"Consolidated {prefix} into {merged_path} ({merged.height:,} rows). " f"Part files retained in {run_dir}."
         )
-        return self.storage._resolve_path(merged_path)
+        return merged_path
 
     def _copy_non_part_files_to_processed(self, run_dir: Path) -> None:
         resolved_dir = self.storage._resolve_path(run_dir)
@@ -244,9 +246,10 @@ class FetchStage:
             if src_path.exists():
                 try:
                     df = pl.read_parquet(src_path)
-                    dst_path = processed_dir / filename
+                    base_dst = processed_dir / filename
+                    dst_path = unique_path(self.storage._resolve_path(base_dst))
                     self.storage.write(df, dst_path)
-                    logger.info(f"Copied {filename} to {processed_dir}")
+                    logger.info(f"Copied {filename} to {dst_path}")
                 except Exception as e:
                     logger.warning(f"Failed to copy {filename} to processed dir: {e}")
 
@@ -390,9 +393,10 @@ class FetchStage:
                 markets_df = add_metadata_columns(
                     markets_df, "gamma-api.polymarket.com", "/markets", self.context.run_timestamp
                 )
-                path = run_dir / "markets.parquet"
+                base_path = run_dir / "markets.parquet"
+                path = unique_path(self.storage._resolve_path(base_path))
                 self.storage.write(markets_df, path)
-                result.markets_path = self.storage._resolve_path(path)
+                result.markets_path = path
                 result.market_count = markets_df.height
 
                 token_ids = (
@@ -483,9 +487,10 @@ class FetchStage:
             if orderbook_rows:
                 df = pl.DataFrame(orderbook_rows)
                 df = add_metadata_columns(df, "clob.polymarket.com", "/book", self.context.run_timestamp)
-                path = run_dir / "orderbooks.parquet"
+                base_path = run_dir / "orderbooks.parquet"
+                path = unique_path(self.storage._resolve_path(base_path))
                 self.storage.write(df, path)
-                result.orderbooks_path = self.storage._resolve_path(path)
+                result.orderbooks_path = path
                 result.orderbook_levels = df.height
 
         if self.include_spreads and token_ids:
@@ -501,9 +506,10 @@ class FetchStage:
             if rows:
                 df = pl.DataFrame(rows)
                 df = add_metadata_columns(df, "clob.polymarket.com", "/book", self.context.run_timestamp)
-                path = run_dir / "spreads.parquet"
+                base_path = run_dir / "spreads.parquet"
+                path = unique_path(self.storage._resolve_path(base_path))
                 self.storage.write(df, path)
-                result.spreads_path = self.storage._resolve_path(path)
+                result.spreads_path = path
                 result.spreads_count = df.height
 
         if self.include_trades:
@@ -528,9 +534,10 @@ class FetchStage:
                 trades_df = add_metadata_columns(
                     trades_df, "data-api.polymarket.com", "/trades", self.context.run_timestamp
                 )
-                path = run_dir / "trades.parquet"
+                base_path = run_dir / "trades.parquet"
+                path = unique_path(self.storage._resolve_path(base_path))
                 self.storage.write(trades_df, path)
-                result.trades_path = self.storage._resolve_path(path)
+                result.trades_path = path
                 result.trade_count = trades_df.height
 
         return result
