@@ -1,3 +1,3 @@
-from . import logging, time
+from . import logging, paths, time
 
-__all__ = ["time", "logging"]
+__all__ = ["time", "logging", "paths"]
