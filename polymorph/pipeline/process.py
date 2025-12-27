@@ -154,6 +154,7 @@ class ProcessStage:
                     "resolved",
                     "resolution_outcome",
                     "category",
+                    "created_at",
                 ]
             )
             .explode("token_ids")
@@ -163,8 +164,8 @@ class ProcessStage:
             .rename({"token_ids": "token_id"})
         )
 
-    def build_enriched_prices(self) -> ProcessResult:
-        logger.info("Building enriched prices")
+    def build_joined_prices(self) -> ProcessResult:
+        logger.info("Building joined prices")
 
         result = ProcessResult(run_timestamp=self.context.run_timestamp)
 
@@ -182,23 +183,23 @@ class ProcessStage:
         timestamp_col = self._detect_column_name(schema, "t", "timestamp")
         price_col = self._detect_column_name(schema, "p", "price")
 
-        enriched = (
+        joined = (
             prices_lf.select(["token_id", timestamp_col, price_col])
             .rename({timestamp_col: "t", price_col: "p"})
             .join(token_map, on="token_id", how="inner")
             .collect()
         )
 
-        if enriched.height == 0:
-            logger.warning("No enriched prices after join")
+        if joined.height == 0:
+            logger.warning("No joined prices after join")
             return result
 
-        output_path = self._output_dir() / "prices_enriched.parquet"
-        self.storage.write(enriched, output_path)
-        result.prices_enriched_path = self.storage._resolve_path(output_path)
-        result.enriched_count = enriched.height
+        output_path = self._output_dir() / "prices_joined.parquet"
+        self.storage.write(joined, output_path)
+        result.prices_joined_path = self.storage._resolve_path(output_path)
+        result.joined_count = joined.height
 
-        logger.info(f"Enriched prices built: {result.enriched_count} rows -> {output_path}")
+        logger.info(f"Joined prices built: {result.joined_count} rows -> {output_path}")
         return result
 
     def build_daily_returns(self) -> ProcessResult:
@@ -342,15 +343,15 @@ class ProcessStage:
 
         logger.info("Starting process stage")
 
-        enriched_result = self.build_enriched_prices()
+        joined_result = self.build_joined_prices()
         returns_result = self.build_daily_returns()
         panel_result = self.build_price_panel()
         trades_result = self.build_trade_aggregates()
 
         result = ProcessResult(
             run_timestamp=self.context.run_timestamp,
-            prices_enriched_path=enriched_result.prices_enriched_path,
-            enriched_count=enriched_result.enriched_count,
+            prices_joined_path=joined_result.prices_joined_path,
+            joined_count=joined_result.joined_count,
             daily_returns_path=returns_result.daily_returns_path,
             returns_count=returns_result.returns_count,
             price_panel_path=panel_result.price_panel_path,
@@ -361,7 +362,7 @@ class ProcessStage:
         )
 
         logger.info(
-            f"Process stage complete: {result.enriched_count} enriched prices, "
+            f"Process stage complete: {result.joined_count} joined prices, "
             f"{result.returns_count} returns, {result.panel_days}x{result.panel_tokens} panel, "
             f"{result.trade_agg_count} trade aggregates"
         )
