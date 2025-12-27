@@ -487,7 +487,7 @@ def process(
     if not has_run_dir and not has_file_paths:
         console.print("[red]Error: Must specify either --dir or explicit file paths[/red]")
         console.print("\nExamples:")
-        console.print("  polymorph process --dir raw/20251223T201757Z")
+        console.print("  polymorph process --dir raw/swift-falcon-1227")
         console.print("  polymorph process --markets my_markets.parquet --prices my_prices.parquet")
         raise typer.Exit(1)
 
