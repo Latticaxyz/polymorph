@@ -7,37 +7,43 @@ import httpx
 import polars as pl
 
 from polymorph import __version__
-from polymorph.core.base import DataSource, PipelineContext
+from polymorph.core.base import PipelineContext
 from polymorph.core.fetch_cache import CacheKey, FetchCache
 from polymorph.core.rate_limit import CLOB_RATE_LIMIT, DATA_API_RATE_LIMIT, RateLimiter, RateLimitError
 from polymorph.core.retry import with_retry
 from polymorph.models.api import OrderBook, OrderBookLevel
-from polymorph.utils.constants import CLOB_MAX_PRICE_HISTORY_MS
+from polymorph.utils.constants import (
+    CLOB_MARKET_BATCH_SIZE,
+    CLOB_MAX_PRICE_HISTORY_MS,
+    CLOB_MAX_TRADES_DEFAULT,
+    CLOB_TRADE_PAGE_SIZE,
+    CONNECT_TIMEOUT_SECONDS,
+    KEEPALIVE_EXPIRY_SECONDS,
+    MS_PER_SECOND,
+)
 from polymorph.utils.logging import get_logger
 from polymorph.utils.parse import parse_timestamp_ms
+from polymorph.utils.types import JsonValue
 
 logger = get_logger(__name__)
 
 ProgressCallback = Callable[[int], None]
 
-JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
-JsonDict = dict[str, JsonValue]
-JsonList = list[JsonValue]
-
 CLOB_BASE = "https://clob.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
 
 
-class CLOB(DataSource[pl.DataFrame]):
+class CLOB:
     def __init__(
         self,
         context: PipelineContext,
         clob_base_url: str = CLOB_BASE,
         data_api_url: str = DATA_API,
         default_fidelity: int = 60,
-        max_trades: int = 200_000,
+        max_trades: int = CLOB_MAX_TRADES_DEFAULT,
     ):
-        super().__init__(context)
+        self.context = context
+        self.config = context.config
         self.clob_base_url = clob_base_url
         self.data_api_url = data_api_url
         self.default_fidelity = default_fidelity
@@ -45,10 +51,6 @@ class CLOB(DataSource[pl.DataFrame]):
         self._client: httpx.AsyncClient | None = None
         self._clob_rate_limiter: RateLimiter | None = None
         self._data_rate_limiter: RateLimiter | None = None
-
-    @property
-    def name(self) -> str:
-        return "clob"
 
     async def _get_clob_rate_limiter(self) -> RateLimiter:
         if self._clob_rate_limiter is None:
@@ -75,10 +77,10 @@ class CLOB(DataSource[pl.DataFrame]):
             limits = httpx.Limits(
                 max_connections=max_conn,
                 max_keepalive_connections=ka_conn,
-                keepalive_expiry=30.0,
+                keepalive_expiry=KEEPALIVE_EXPIRY_SECONDS,
             )
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.context.http_timeout, connect=10.0),
+                timeout=httpx.Timeout(self.context.http_timeout, connect=CONNECT_TIMEOUT_SECONDS),
                 http2=False,  # Server terminates HTTP/2 after ~20k streams; HTTP/1.1 is more reliable
                 limits=limits,
                 headers={
@@ -123,64 +125,83 @@ class CLOB(DataSource[pl.DataFrame]):
     ) -> None:
         await self.close()
 
+    def _parse_price_history_response(self, data: JsonValue, token_id: str) -> pl.DataFrame:
+        empty_schema = {"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Float64}
+
+        try:
+            response = cast(dict[str, JsonValue], data)
+            hist = response["history"]
+        except (KeyError, TypeError) as e:
+            raise ValueError(f"Invalid price history response: {e}") from e
+
+        if not isinstance(hist, list) or not hist:
+            return pl.DataFrame(schema=empty_schema)
+
+        rows: list[dict[str, object]] = []
+        for item in hist:
+            try:
+                item_dict = cast(dict[str, JsonValue], item)
+                t_raw = item_dict["t"]
+                p_raw = item_dict["p"]
+
+                if isinstance(t_raw, (int, float)):
+                    t = int(t_raw * MS_PER_SECOND) if t_raw < 10000000000 else int(t_raw)
+                else:
+                    t = parse_timestamp_ms(t_raw)
+
+                rows.append({"token_id": token_id, "t": t, "p": float(p_raw)})  # type: ignore[arg-type]
+            except (KeyError, TypeError, ValueError) as e:
+                logger.warning(f"Skipping invalid price point: {e}")
+                continue
+
+        return pl.DataFrame(rows) if rows else pl.DataFrame(schema=empty_schema)
+
+    def _parse_orderbook_levels(self, levels_data: list[JsonValue]) -> list[OrderBookLevel]:
+        levels: list[OrderBookLevel] = []
+        for level in levels_data:
+            if not isinstance(level, dict):
+                continue
+            if "price" not in level or "size" not in level:
+                continue
+
+            try:
+                price_val = level["price"]
+                size_val = level["size"]
+                if isinstance(price_val, str):
+                    price_val = float(price_val)
+                if isinstance(size_val, str):
+                    size_val = float(size_val)
+                if not isinstance(price_val, (int, float)) or not isinstance(size_val, (int, float)):
+                    continue
+                levels.append(OrderBookLevel(price=float(price_val), size=float(size_val)))
+            except (ValueError, TypeError):
+                continue
+        return levels
+
     @with_retry()
     async def _fetch_price_history_chunk(
         self,
         token_id: str,
-        start_ts: int,  # Unix milliseconds
-        end_ts: int,  # Unix milliseconds
-        fidelity: int,  # Seconds
+        start_ts: int,
+        end_ts: int,
+        fidelity: int,
     ) -> pl.DataFrame:
         url = f"{self.clob_base_url}/prices-history"
         params: dict[str, str | int | float | bool] = {
             "market": token_id,
-            "startTs": start_ts // 1000,  # API expects seconds
-            "endTs": end_ts // 1000,
+            "startTs": start_ts // MS_PER_SECOND,
+            "endTs": end_ts // MS_PER_SECOND,
             "fidelity": fidelity,
         }
 
         data = await self._get(url, params=params, use_data_api=False)
-
-        if not isinstance(data, dict):
-            raise ValueError(f"Expected dict response, got {type(data).__name__}")
-
-        hist = data.get("history")
-        if hist is None:
-            raise ValueError("Response missing 'history' field")
-        if not isinstance(hist, list):
-            raise ValueError(f"'history' must be list, got {type(hist).__name__}")
-
-        if not hist:
-            return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Float64})
-
-        rows: list[dict[str, object]] = []
-        for item in hist:
-            if not isinstance(item, dict):
-                raise ValueError(f"History item must be dict, got {type(item).__name__}")
-
-            if "t" not in item or "p" not in item:
-                raise ValueError(f"History item missing required fields: {item}")
-
-            t_seconds = item["t"]
-            if isinstance(t_seconds, (int, float)):
-                t = int(t_seconds * 1000) if t_seconds < 10000000000 else int(t_seconds)
-            else:
-                t = parse_timestamp_ms(t_seconds)
-
-            p_val = item["p"]
-            if not isinstance(p_val, (int, float)):
-                raise ValueError(f"Price must be numeric, got {type(p_val).__name__}")
-            p = float(p_val)
-
-            rows.append({"token_id": token_id, "t": t, "p": p})
-
-        return pl.DataFrame(rows)
+        return self._parse_price_history_response(data, token_id)
 
     @with_retry()
     async def _fetch_price_history_interval(
         self,
         token_id: str,
-        interval: str,  # 'all', 'max', '1d', '1w', etc.
+        interval: str,
         fidelity: int,
     ) -> pl.DataFrame:
         url = f"{self.clob_base_url}/prices-history"
@@ -191,41 +212,7 @@ class CLOB(DataSource[pl.DataFrame]):
         }
 
         data = await self._get(url, params=params, use_data_api=False)
-
-        if not isinstance(data, dict):
-            raise ValueError(f"Expected dict response, got {type(data).__name__}")
-
-        hist = data.get("history")
-        if hist is None:
-            raise ValueError("Response missing 'history' field")
-        if not isinstance(hist, list):
-            raise ValueError(f"'history' must be list, got {type(hist).__name__}")
-
-        if not hist:
-            return pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Float64})
-
-        rows: list[dict[str, object]] = []
-        for item in hist:
-            if not isinstance(item, dict):
-                raise ValueError(f"History item must be dict, got {type(item).__name__}")
-
-            if "t" not in item or "p" not in item:
-                raise ValueError(f"History item missing required fields: {item}")
-
-            t_seconds = item["t"]
-            if isinstance(t_seconds, (int, float)):
-                t = int(t_seconds * 1000) if t_seconds < 10000000000 else int(t_seconds)
-            else:
-                t = parse_timestamp_ms(t_seconds)
-
-            p_val = item["p"]
-            if not isinstance(p_val, (int, float)):
-                raise ValueError(f"Price must be numeric, got {type(p_val).__name__}")
-            p = float(p_val)
-
-            rows.append({"token_id": token_id, "t": t, "p": p})
-
-        return pl.DataFrame(rows)
+        return self._parse_price_history_response(data, token_id)
 
     async def fetch_prices_history(
         self,
@@ -294,66 +281,18 @@ class CLOB(DataSource[pl.DataFrame]):
 
         data = await self._get(url, params=params, use_data_api=False)
 
-        if not isinstance(data, dict):
-            raise ValueError(f"Expected dict response, got {type(data).__name__}")
+        try:
+            response = cast(dict[str, JsonValue], data)
+            bids_data = cast(list[JsonValue], response["bids"])
+            asks_data = cast(list[JsonValue], response["asks"])
+        except (KeyError, TypeError) as e:
+            raise ValueError(f"Invalid orderbook response for {token_id}: {e}") from e
 
-        if "bids" not in data or "asks" not in data:
-            raise ValueError(f"Response missing bids/asks: {list(data.keys())}")
-
-        bids_data = data["bids"]
-        asks_data = data["asks"]
-
-        if not isinstance(bids_data, list) or not isinstance(asks_data, list):
-            raise ValueError("bids and asks must be lists")
-
-        bids: list[OrderBookLevel] = []
-        for level in bids_data:
-            if not isinstance(level, dict):
-                continue
-            if "price" not in level or "size" not in level:
-                continue
-
-            try:
-                price_val = level["price"]
-                size_val = level["size"]
-                if isinstance(price_val, str):
-                    price_val = float(price_val)
-                if isinstance(size_val, str):
-                    size_val = float(size_val)
-                if not isinstance(price_val, (int, float)) or not isinstance(size_val, (int, float)):
-                    continue
-                bids.append(OrderBookLevel(price=float(price_val), size=float(size_val)))
-            except (ValueError, TypeError):
-                continue
-
-        asks: list[OrderBookLevel] = []
-        for level in asks_data:
-            if not isinstance(level, dict):
-                continue
-            if "price" not in level or "size" not in level:
-                continue
-
-            try:
-                price_val = level["price"]
-                size_val = level["size"]
-                if isinstance(price_val, str):
-                    price_val = float(price_val)
-                if isinstance(size_val, str):
-                    size_val = float(size_val)
-                if not isinstance(price_val, (int, float)) or not isinstance(size_val, (int, float)):
-                    continue
-                asks.append(OrderBookLevel(price=float(price_val), size=float(size_val)))
-            except (ValueError, TypeError):
-                continue
-
-        bids = sorted(bids, key=lambda x: x.price, reverse=True)
-        asks = sorted(asks, key=lambda x: x.price)
-
-        best_bid = bids[0].price if bids else None
-        best_ask = asks[0].price if asks else None
+        bids = sorted(self._parse_orderbook_levels(bids_data), key=lambda x: x.price, reverse=True)
+        asks = sorted(self._parse_orderbook_levels(asks_data), key=lambda x: x.price)
 
         try:
-            timestamp = parse_timestamp_ms(data.get("timestamp", 0))
+            timestamp = parse_timestamp_ms(response.get("timestamp", 0))
         except (ValueError, TypeError):
             timestamp = 0
 
@@ -362,8 +301,8 @@ class CLOB(DataSource[pl.DataFrame]):
             timestamp=timestamp,
             bids=bids,
             asks=asks,
-            best_bid=best_bid,
-            best_ask=best_ask,
+            best_bid=bids[0].price if bids else None,
+            best_ask=asks[0].price if asks else None,
         )
         ob.mid_price = ob.calculate_mid_price()
         ob.spread = ob.calculate_spread()
@@ -453,7 +392,7 @@ class CLOB(DataSource[pl.DataFrame]):
     ) -> list[dict[str, str | int | float]]:
         rows: list[dict[str, str | int | float]] = []
         offset = 0
-        limit = 1000
+        limit = CLOB_TRADE_PAGE_SIZE
 
         while True:
             batch = await self.fetch_trades_paged(limit=limit, offset=offset, market_ids=market_ids)
@@ -485,7 +424,7 @@ class CLOB(DataSource[pl.DataFrame]):
         on_progress: ProgressCallback | None = None,
     ) -> pl.DataFrame:
         rows: list[dict[str, str | int | float]] = []
-        market_batch_size = 50
+        market_batch_size = CLOB_MARKET_BATCH_SIZE
 
         if market_ids and len(market_ids) > market_batch_size:
             for i in range(0, len(market_ids), market_batch_size):

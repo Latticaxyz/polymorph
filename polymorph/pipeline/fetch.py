@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import Awaitable, TypeVar
 
 import polars as pl
-from rich.live import Live
+from rich.progress import Progress, ProgressColumn, SpinnerColumn, Task, TaskID, TextColumn, TimeElapsedColumn
 from rich.text import Text
 
-from polymorph.core.base import PipelineContext, PipelineStage
+from polymorph.core.base import PipelineContext
 from polymorph.core.fetch_cache import FetchCache
 from polymorph.core.rate_limit import RateLimiter
 from polymorph.core.storage import PathStorage
@@ -27,7 +27,48 @@ T = TypeVar("T")
 
 logger = get_logger(__name__)
 
-SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+def add_metadata_columns(df: pl.DataFrame, source: str, endpoint: str, timestamp: datetime) -> pl.DataFrame:
+    return df.with_columns(
+        [
+            pl.lit(source).alias("_source_api"),
+            pl.lit(timestamp).alias("_fetch_timestamp"),
+            pl.lit(endpoint).alias("_api_endpoint"),
+        ]
+    )
+
+
+class RateLimiterColumn(ProgressColumn):
+    def __init__(self, rate_limiter: RateLimiter | None = None) -> None:
+        super().__init__()
+        self._rate_limiter = rate_limiter
+
+    def render(self, _task: Task) -> Text:
+        if self._rate_limiter is None:
+            return Text("")
+        return Text(f"| {self._rate_limiter.get_rps():.1f} req/s")
+
+
+def create_progress(
+    label: str,
+    total: int | None = None,
+    rate_limiter: RateLimiter | None = None,
+) -> tuple[Progress, TaskID]:
+    columns: list[ProgressColumn] = [
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        TextColumn("{task.completed}"),
+    ]
+    if total is not None:
+        columns.append(TextColumn("/ {task.total} fetched"))
+    else:
+        columns.append(TextColumn("fetched"))
+    columns.append(RateLimiterColumn(rate_limiter))
+    columns.append(TimeElapsedColumn())
+
+    progress = Progress(*columns, refresh_per_second=10)
+    task_id = progress.add_task(label, total=total)
+    return progress, task_id
 
 
 @dataclass
@@ -37,60 +78,6 @@ class TokenFetchJob:
     end_ts: int
     market_id: str
     created_at_ts: int
-
-
-@dataclass
-class WorkItem:
-    index: int
-    job: TokenFetchJob
-
-
-@dataclass
-class WorkResult:
-    index: int
-    result: pl.DataFrame | BaseException
-
-
-class FetchProgress:
-    def __init__(
-        self,
-        label: str,
-        total: int | None = None,
-        rate_limiter: RateLimiter | None = None,
-    ):
-        self.label = label
-        self.total = total
-        self.completed = 0
-        self._start_time = time.monotonic()
-        self._rate_limiter = rate_limiter
-
-    def increment(self) -> None:
-        self.completed += 1
-
-    def elapsed(self) -> str:
-        seconds = time.monotonic() - self._start_time
-        hours, remainder = divmod(int(seconds), 3600)
-        minutes, secs = divmod(remainder, 60)
-        if hours:
-            return f"{hours}:{minutes:02d}:{secs:02d}"
-        return f"{minutes}:{secs:02d}"
-
-    def render(self) -> Text:
-        frame_idx = int(time.monotonic() * 10) % len(SPINNER_FRAMES)
-        spinner = SPINNER_FRAMES[frame_idx]
-
-        if self.total is not None:
-            remaining = self.total - self.completed
-            status = f"{self.completed}/{self.total} fetched, {remaining} remaining"
-        else:
-            status = f"{self.completed} fetched"
-
-        rps_str = ""
-        if self._rate_limiter:
-            rps = self._rate_limiter.get_rps()
-            rps_str = f" | {rps:.1f} req/s"
-
-        return Text(f"{spinner} {self.label} {status}{rps_str} [{self.elapsed()}]")
 
 
 class BatchResultWriter:
@@ -140,90 +127,7 @@ class BatchResultWriter:
         return self._total_written, self._part_number
 
 
-class PricesFetchOrchestrator:
-    def __init__(
-        self,
-        clob: CLOB,
-        num_workers: int,
-        progress: FetchProgress,
-        cache: FetchCache | None = None,
-        writer: BatchResultWriter | None = None,
-        run_timestamp: datetime | None = None,
-    ):
-        self.clob = clob
-        self.num_workers = num_workers
-        self.progress = progress
-        self.cache = cache
-        self.writer = writer
-        self.run_timestamp = run_timestamp
-
-    async def fetch_all(self, jobs: list[TokenFetchJob]) -> list[pl.DataFrame | BaseException]:
-        total = len(jobs)
-        if total == 0:
-            return []
-
-        job_queue: asyncio.Queue[WorkItem | None] = asyncio.Queue()
-        result_queue: asyncio.Queue[WorkResult] = asyncio.Queue()
-
-        for i, job in enumerate(jobs):
-            await job_queue.put(WorkItem(index=i, job=job))
-
-        for _ in range(self.num_workers):
-            await job_queue.put(None)
-
-        workers = [asyncio.create_task(self._worker(job_queue, result_queue)) for _ in range(self.num_workers)]
-
-        results: list[pl.DataFrame | BaseException] = [
-            pl.DataFrame(schema={"token_id": pl.Utf8, "t": pl.Int64, "p": pl.Float64}) for _ in range(total)
-        ]
-
-        collected = 0
-        while collected < total:
-            work_result = await result_queue.get()
-            results[work_result.index] = work_result.result
-            collected += 1
-            self.progress.increment()
-
-            if self.writer and isinstance(work_result.result, pl.DataFrame) and work_result.result.height > 0:
-                df_with_meta = work_result.result.with_columns(
-                    [
-                        pl.lit("clob.polymarket.com").alias("_source_api"),
-                        pl.lit(self.run_timestamp).alias("_fetch_timestamp"),
-                        pl.lit("/prices-history").alias("_api_endpoint"),
-                    ]
-                )
-                self.writer.add(df_with_meta)
-
-        await asyncio.gather(*workers)
-        return results
-
-    async def _worker(
-        self,
-        job_queue: asyncio.Queue[WorkItem | None],
-        result_queue: asyncio.Queue[WorkResult],
-    ) -> None:
-        while True:
-            item = await job_queue.get()
-            if item is None:
-                job_queue.task_done()
-                break
-
-            try:
-                df = await self.clob.fetch_prices_history(
-                    item.job.token_id,
-                    start_ts=item.job.start_ts,
-                    end_ts=item.job.end_ts,
-                    cache=self.cache,
-                    created_at_ts=item.job.created_at_ts,
-                )
-                await result_queue.put(WorkResult(index=item.index, result=df))
-            except Exception as e:
-                await result_queue.put(WorkResult(index=item.index, result=e))
-
-            job_queue.task_done()
-
-
-class FetchStage(PipelineStage[None, FetchResult]):
+class FetchStage:
     def __init__(
         self,
         context: PipelineContext,
@@ -240,8 +144,9 @@ class FetchStage(PipelineStage[None, FetchResult]):
         include_spreads: bool = False,
         resolved_only: bool = False,
         max_concurrency: int | None = None,
+        use_gamma_cache: bool = True,
     ):
-        super().__init__(context)
+        self.context = context
         self.minutes = minutes
         self.hours = hours
         self.days = days
@@ -257,13 +162,9 @@ class FetchStage(PipelineStage[None, FetchResult]):
         self.max_concurrency = max_concurrency or context.max_concurrency
 
         self.storage = context.storage
-        self.gamma = Gamma(context)
+        self.gamma = Gamma(context, use_cache=use_gamma_cache)
         self.clob = CLOB(context)
         self._pending_consolidations: list[tuple[Path, str]] = []
-
-    @property
-    def name(self) -> str:
-        return "fetch"
 
     def _stamp(self) -> str:
         return self.context.run_timestamp.strftime("%Y%m%dT%H%M%SZ")
@@ -380,7 +281,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
         sem: asyncio.Semaphore,
     ) -> list[T | BaseException]:
         total = len(coros)
-        progress = FetchProgress(label, total)
+        progress, task_id = create_progress(label, total)
         results: list[T | BaseException] = [None] * total  # type: ignore[list-item]
 
         async def tracked(idx: int, coro: Awaitable[T]) -> None:
@@ -389,17 +290,47 @@ class FetchStage(PipelineStage[None, FetchResult]):
                     results[idx] = await coro
                 except Exception as e:
                     results[idx] = e
-                progress.increment()
+                progress.update(task_id, advance=1)
 
         tasks = [asyncio.create_task(tracked(i, c)) for i, c in enumerate(coros)]
 
-        with Live(progress.render(), refresh_per_second=10) as live:
+        with progress:
             while not all(t.done() for t in tasks):
-                live.update(progress.render())
                 await asyncio.sleep(0.1)
-            live.update(progress.render())
 
         return results
+
+    async def _fetch_prices_concurrent(
+        self,
+        jobs: list[TokenFetchJob],
+        clob: CLOB,
+        progress: Progress,
+        task_id: TaskID,
+        cache: FetchCache | None,
+        writer: BatchResultWriter | None,
+        run_timestamp: datetime,
+    ) -> list[pl.DataFrame | BaseException]:
+        sem = asyncio.Semaphore(self.max_concurrency)
+
+        async def fetch_one(job: TokenFetchJob) -> pl.DataFrame | BaseException:
+            async with sem:
+                try:
+                    df = await clob.fetch_prices_history(
+                        job.token_id,
+                        start_ts=job.start_ts,
+                        end_ts=job.end_ts,
+                        cache=cache,
+                        created_at_ts=job.created_at_ts,
+                    )
+                    if writer and df.height > 0:
+                        writer.add(add_metadata_columns(df, "clob.polymarket.com", "/prices-history", run_timestamp))
+                    progress.advance(task_id)
+                    return df
+                except Exception as e:
+                    progress.advance(task_id)
+                    return e
+
+        return await asyncio.gather(*[fetch_one(job) for job in jobs])
 
     async def execute(self, _input: None = None) -> FetchResult:
         start_ts = time_delta_ms(
@@ -438,12 +369,12 @@ class FetchStage(PipelineStage[None, FetchResult]):
         run_dir = Path("raw") / stamp
 
         if self.include_gamma:
-            progress = FetchProgress("markets")
+            progress, task_id = create_progress("markets")
 
             def on_markets_progress(count: int) -> None:
-                progress.completed = count
+                progress.update(task_id, completed=count)
 
-            async def fetch_markets_with_live() -> pl.DataFrame | None:
+            async def fetch_markets_coro() -> pl.DataFrame | None:
                 async with self.gamma:
                     return await self.gamma.fetch_markets(
                         resolved_only=self.resolved_only,
@@ -452,21 +383,12 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         on_progress=on_markets_progress,
                     )
 
-            with Live(progress.render(), refresh_per_second=10) as live:
-                markets_task: asyncio.Task[pl.DataFrame | None] = asyncio.create_task(fetch_markets_with_live())
-                while not markets_task.done():
-                    live.update(progress.render())
-                    await asyncio.sleep(0.1)
-                markets_df = await markets_task
-                live.update(progress.render())
+            with progress:
+                markets_df = await fetch_markets_coro()
 
             if markets_df is not None and markets_df.height > 0:
-                markets_df = markets_df.with_columns(
-                    [
-                        pl.lit("gamma-api.polymarket.com").alias("_source_api"),
-                        pl.lit(self.context.run_timestamp).alias("_fetch_timestamp"),
-                        pl.lit("/markets").alias("_api_endpoint"),
-                    ]
+                markets_df = add_metadata_columns(
+                    markets_df, "gamma-api.polymarket.com", "/markets", self.context.run_timestamp
                 )
                 path = run_dir / "markets.parquet"
                 self.storage.write(markets_df, path)
@@ -484,7 +406,6 @@ class FetchStage(PipelineStage[None, FetchResult]):
             logger.info(f"Built {len(token_jobs)} token fetch jobs with per-market time bounds")
 
         if self.include_prices and token_jobs:
-            num_workers = min(self.max_concurrency, 200)
             cache_path = self.context.data_dir / ".fetch_cache.db"
             cache = FetchCache(cache_path)
             cached_count = cache.get_total_completed()
@@ -503,24 +424,18 @@ class FetchStage(PipelineStage[None, FetchResult]):
             try:
                 async with self.clob:
                     rate_limiter = await self.clob._get_clob_rate_limiter()
-                    progress = FetchProgress("prices", len(token_jobs), rate_limiter=rate_limiter)
+                    progress, task_id = create_progress("prices", len(token_jobs), rate_limiter)
 
-                    orchestrator = PricesFetchOrchestrator(
-                        clob=self.clob,
-                        num_workers=num_workers,
-                        progress=progress,
-                        cache=cache,
-                        writer=writer,
-                        run_timestamp=self.context.run_timestamp,
-                    )
-
-                    with Live(progress.render(), refresh_per_second=10) as live:
-                        fetch_task = asyncio.create_task(orchestrator.fetch_all(token_jobs))
-                        while not fetch_task.done():
-                            live.update(progress.render())
-                            await asyncio.sleep(0.1)
-                        await fetch_task
-                        live.update(progress.render())
+                    with progress:
+                        await self._fetch_prices_concurrent(
+                            jobs=token_jobs,
+                            clob=self.clob,
+                            progress=progress,
+                            task_id=task_id,
+                            cache=cache,
+                            writer=writer,
+                            run_timestamp=self.context.run_timestamp,
+                        )
 
                 total_written, part_count = writer.finalize()
                 if total_written > 0:
@@ -567,13 +482,7 @@ class FetchStage(PipelineStage[None, FetchResult]):
 
             if orderbook_rows:
                 df = pl.DataFrame(orderbook_rows)
-                df = df.with_columns(
-                    [
-                        pl.lit("clob.polymarket.com").alias("_source_api"),
-                        pl.lit(self.context.run_timestamp).alias("_fetch_timestamp"),
-                        pl.lit("/book").alias("_api_endpoint"),
-                    ]
-                )
+                df = add_metadata_columns(df, "clob.polymarket.com", "/book", self.context.run_timestamp)
                 path = run_dir / "orderbooks.parquet"
                 self.storage.write(df, path)
                 result.orderbooks_path = self.storage._resolve_path(path)
@@ -591,25 +500,19 @@ class FetchStage(PipelineStage[None, FetchResult]):
             ]
             if rows:
                 df = pl.DataFrame(rows)
-                df = df.with_columns(
-                    [
-                        pl.lit("clob.polymarket.com").alias("_source_api"),
-                        pl.lit(self.context.run_timestamp).alias("_fetch_timestamp"),
-                        pl.lit("/book").alias("_api_endpoint"),
-                    ]
-                )
+                df = add_metadata_columns(df, "clob.polymarket.com", "/book", self.context.run_timestamp)
                 path = run_dir / "spreads.parquet"
                 self.storage.write(df, path)
                 result.spreads_path = self.storage._resolve_path(path)
                 result.spreads_count = df.height
 
         if self.include_trades:
-            progress = FetchProgress("trades")
+            progress, task_id = create_progress("trades")
 
             def on_trades_progress(count: int) -> None:
-                progress.completed = count
+                progress.update(task_id, completed=count)
 
-            async def fetch_trades_with_live() -> pl.DataFrame:
+            async def fetch_trades_coro() -> pl.DataFrame:
                 market_ids = (
                     markets_df.select("id").drop_nulls().to_series().to_list() if markets_df is not None else None
                 )
@@ -618,21 +521,12 @@ class FetchStage(PipelineStage[None, FetchResult]):
                         market_ids=market_ids, since_ts=start_ts, on_progress=on_trades_progress
                     )
 
-            with Live(progress.render(), refresh_per_second=10) as live:
-                trades_task: asyncio.Task[pl.DataFrame] = asyncio.create_task(fetch_trades_with_live())
-                while not trades_task.done():
-                    live.update(progress.render())
-                    await asyncio.sleep(0.1)
-                trades_df = await trades_task
-                live.update(progress.render())
+            with progress:
+                trades_df = await fetch_trades_coro()
 
             if trades_df is not None and trades_df.height > 0:
-                trades_df = trades_df.with_columns(
-                    [
-                        pl.lit("data-api.polymarket.com").alias("_source_api"),
-                        pl.lit(self.context.run_timestamp).alias("_fetch_timestamp"),
-                        pl.lit("/trades").alias("_api_endpoint"),
-                    ]
+                trades_df = add_metadata_columns(
+                    trades_df, "data-api.polymarket.com", "/trades", self.context.run_timestamp
                 )
                 path = run_dir / "trades.parquet"
                 self.storage.write(trades_df, path)
