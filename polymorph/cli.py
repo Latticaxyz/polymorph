@@ -15,6 +15,7 @@ from polymorph.core.base import PipelineContext, RuntimeConfig
 from polymorph.models.pipeline import FilterConfig, FilterResult, ProcessInputConfig, ProcessResult
 from polymorph.pipeline import FetchStage, FilterStage, ProcessStage
 from polymorph.utils.logging import setup as setup_logging
+from polymorph.utils.paths import unique_path
 from polymorph.utils.schema import (
     DiscoveredFiles,
     discover_files,
@@ -653,7 +654,8 @@ def filter(
         raise typer.Exit(1)
 
     resolved_input = input_file.resolve()
-    output_file = out.resolve() if out is not None else resolved_input.parent / "prices_filtered.parquet"
+    base_output = out.resolve() if out is not None else resolved_input.parent / "prices_filtered.parquet"
+    output_file = unique_path(base_output)
 
     parsed_start_date = _parse_date(start_date).date() if start_date else None
     parsed_end_date = _parse_date(end_date).date() if end_date else None
