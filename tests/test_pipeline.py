@@ -210,14 +210,14 @@ async def test_fetch_and_process_pipeline_with_fake_sources(tmp_path: Path) -> N
     process_stage = ProcessStage(context)
     process_result = await process_stage.execute(fetch_result)
 
-    assert process_result.prices_enriched_path is not None
-    assert process_result.prices_enriched_path.exists()
-    assert process_result.enriched_count > 0
+    assert process_result.prices_joined_path is not None
+    assert process_result.prices_joined_path.exists()
+    assert process_result.joined_count > 0
 
-    enriched_df = pl.read_parquet(process_result.prices_enriched_path)
-    assert "market_id" in enriched_df.columns
-    assert "outcome_name" in enriched_df.columns
-    assert "question" in enriched_df.columns
+    joined_df = pl.read_parquet(process_result.prices_joined_path)
+    assert "market_id" in joined_df.columns
+    assert "outcome_name" in joined_df.columns
+    assert "question" in joined_df.columns
 
     assert process_result.daily_returns_path is not None
     assert process_result.daily_returns_path.exists()
