@@ -30,6 +30,8 @@ coverage.xml
 
 # Parquet dataset outputs
 data/
+data.*/
+.fetch_cache*
 
 # uv files
 uv.lock
