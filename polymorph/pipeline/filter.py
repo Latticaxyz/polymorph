@@ -177,7 +177,7 @@ class FilterStage:
         result.filters_applied = applied
         result.output_count = filtered.height
 
-        filtered.write_parquet(self.output_path)
+        self.storage.write(filtered, self.output_path)
         result.output_path = self.output_path
 
         logger.info(
