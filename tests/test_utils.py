@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
+from polymorph.utils.paths import unique_path
 from polymorph.utils.time import datetime_to_ms, months_ago, ms_to_datetime, time_delta_ms, utc, utc_ms
 
 
@@ -196,3 +198,42 @@ def test_datetime_ms_roundtrip() -> None:
     assert result.minute == original.minute
     assert result.second == original.second
     assert result.tzinfo == original.tzinfo
+
+
+# ============================================================================
+# UNIQUE PATH TESTS
+# ============================================================================
+
+
+def test_unique_path_nonexistent_returns_unchanged(tmp_path: Path) -> None:
+    path = tmp_path / "foo.parquet"
+    result = unique_path(path)
+    assert result == path
+
+
+def test_unique_path_existing_returns_001(tmp_path: Path) -> None:
+    path = tmp_path / "foo.parquet"
+    path.touch()
+    result = unique_path(path)
+    assert result == tmp_path / "foo_001.parquet"
+
+
+def test_unique_path_increments_correctly(tmp_path: Path) -> None:
+    (tmp_path / "foo.parquet").touch()
+    (tmp_path / "foo_001.parquet").touch()
+    (tmp_path / "foo_002.parquet").touch()
+    result = unique_path(tmp_path / "foo.parquet")
+    assert result == tmp_path / "foo_003.parquet"
+
+
+def test_unique_path_strips_existing_suffix(tmp_path: Path) -> None:
+    (tmp_path / "foo.parquet").touch()
+    (tmp_path / "foo_001.parquet").touch()
+    result = unique_path(tmp_path / "foo_001.parquet")
+    assert result == tmp_path / "foo_002.parquet"
+
+
+def test_unique_path_preserves_extension(tmp_path: Path) -> None:
+    (tmp_path / "data.csv").touch()
+    result = unique_path(tmp_path / "data.csv")
+    assert result == tmp_path / "data_001.csv"
