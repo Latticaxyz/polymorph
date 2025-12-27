@@ -1,4 +1,8 @@
-from polymorph.core.base import DataSource, PipelineContext, PipelineStage
+from polymorph.core.base import (
+    PipelineContext,
+    ResolvedConfig,
+    RuntimeConfig,
+)
 from polymorph.core.rate_limit import RateLimiter, RateLimitError
 from polymorph.core.retry import with_retry
 from polymorph.core.storage import (
@@ -11,9 +15,9 @@ from polymorph.core.storage import (
 from polymorph.core.storage_factory import make_storage
 
 __all__ = [
-    "DataSource",
-    "PipelineStage",
     "PipelineContext",
+    "ResolvedConfig",
+    "RuntimeConfig",
     "PathStorage",
     "ParquetStorage",
     "ParquetDuckDBStorage",

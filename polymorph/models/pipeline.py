@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 @dataclass
@@ -37,7 +36,6 @@ class FetchResult(BaseModel):
     trade_count: int = 0
     price_point_count: int = 0
     processed_dir: Path | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -53,15 +51,5 @@ class ProcessResult(BaseModel):
     enriched_count: int = 0
     panel_days: int = 0
     panel_tokens: int = 0
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-    model_config = {"arbitrary_types_allowed": True}
-
-
-class AnalysisResult(BaseModel):
-    simulation_results: dict[str, Any] = Field(default_factory=dict)
-    optimization_results: dict[str, Any] = Field(default_factory=dict)
-    run_timestamp: datetime
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {"arbitrary_types_allowed": True}

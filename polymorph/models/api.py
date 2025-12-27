@@ -4,7 +4,7 @@ import json
 
 from pydantic import BaseModel, Field, field_validator
 
-from polymorph.utils.parse import parse_decimal_string, parse_timestamp_ms
+from polymorph.utils.parse import parse_timestamp_ms
 
 
 class Market(BaseModel):
@@ -44,59 +44,6 @@ class Market(BaseModel):
             except (json.JSONDecodeError, TypeError):
                 pass
         return None
-
-
-class Token(BaseModel):
-    token_id: str = Field(..., alias="tokenId")
-    outcome: str | None = None
-    market_id: str | None = Field(default=None, alias="marketId")
-
-    model_config = {"populate_by_name": True, "extra": "ignore"}
-
-
-class PricePoint(BaseModel):
-    t: int  # Unix milliseconds
-    p: str  # Decimal string
-    token_id: str | None = Field(default=None, alias="tokenId")
-
-    model_config = {"populate_by_name": True, "extra": "ignore"}
-
-    @field_validator("t", mode="before")
-    @classmethod
-    def validate_timestamp(cls, v: object) -> int:
-        return parse_timestamp_ms(v)
-
-    @field_validator("p", mode="before")
-    @classmethod
-    def validate_price(cls, v: object) -> str:
-        return parse_decimal_string(v)
-
-
-class Trade(BaseModel):
-    id: str
-    market: str  # condition_id
-    asset_id: str = Field(..., alias="assetId")  # token_id
-    condition_id: str | None = Field(default=None, alias="conditionId")
-    side: str  # "BUY" or "SELL"
-    size: str  # Decimal string
-    price: str  # Decimal string
-    fee_rate_bps: int | None = Field(default=None, alias="feeRateBps")
-    status: str | None = None
-    timestamp: int  # Unix milliseconds
-    maker_address: str | None = Field(default=None, alias="makerAddress")
-    match_time: str | None = Field(default=None, alias="matchTime")
-
-    model_config = {"populate_by_name": True, "extra": "ignore"}
-
-    @field_validator("timestamp", mode="before")
-    @classmethod
-    def validate_timestamp(cls, v: object) -> int:
-        return parse_timestamp_ms(v)
-
-    @field_validator("price", "size", mode="before")
-    @classmethod
-    def validate_decimal(cls, v: object) -> str:
-        return parse_decimal_string(v)
 
 
 class OrderBookLevel(BaseModel):
@@ -148,34 +95,12 @@ class OrderBook(BaseModel):
 
         if side in ("bid", "both"):
             for level in self.bids:
-                # Convert string price to float for comparison
-                level_price = float(level.price)
-                if level_price >= self.mid_price - distance:
-                    depth += float(level.size)
+                if level.price >= self.mid_price - distance:
+                    depth += level.size
 
         if side in ("ask", "both"):
             for level in self.asks:
-                # Convert string price to float for comparison
-                level_price = float(level.price)
-                if level_price <= self.mid_price + distance:
-                    depth += float(level.size)
+                if level.price <= self.mid_price + distance:
+                    depth += level.size
 
         return depth
-
-
-class MarketResolution(BaseModel):
-    market_id: str
-    condition_id: str | None = None
-    outcome: str
-    resolution_timestamp: int | None = None  # Unix milliseconds
-    resolution_date: str | None = None
-    winning_outcome_price: float | None = None
-
-    model_config = {"extra": "ignore"}
-
-    @field_validator("resolution_timestamp", mode="before")
-    @classmethod
-    def validate_timestamp(cls, v: object) -> int | None:
-        if v is None:
-            return None
-        return parse_timestamp_ms(v)

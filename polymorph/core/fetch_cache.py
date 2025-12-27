@@ -96,15 +96,6 @@ class FetchCache:
                 yield (current, chunk_end)
             current = chunk_end + 1
 
-    def get_completed_count(self, token_id: str) -> int:
-        conn = self._get_conn()
-        cursor = conn.execute(
-            "SELECT COUNT(*) FROM completed_windows WHERE token_id = ?",
-            (token_id,),
-        )
-        result = cursor.fetchone()
-        return result[0] if result else 0
-
     def get_total_completed(self) -> int:
         conn = self._get_conn()
         cursor = conn.execute("SELECT COUNT(*) FROM completed_windows")

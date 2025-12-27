@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 
-from polymorph.models.api import Market, OrderBook, OrderBookLevel, Trade
+from polymorph.models.api import Market, OrderBook, OrderBookLevel
 
 
 def test_market_normalizes_clob_token_ids_from_list() -> None:
@@ -71,78 +69,10 @@ def test_market_with_complete_data() -> None:
     assert len(m.tags) == 2
 
 
-def test_trade_timestamp_parsed_from_created_at() -> None:
-    """Test Trade automatically parses timestamp from createdAt."""
-    created = "2025-01-02T03:04:05+00:00"
-    expected_ts = int(datetime.fromisoformat(created).timestamp() * 1000)
-    t = Trade(
-        id="trade-1",
-        market="test-market",
-        assetId="asset-1",
-        timestamp=expected_ts,
-        side="BUY",
-        size="10.0",
-        price="0.65",
-    )
-
-    assert t.timestamp == expected_ts
-    assert t.side == "BUY"
-    assert t.size == "10.0"
-    assert t.price == "0.65"
-
-
-def test_trade_with_explicit_timestamp() -> None:
-    """Test Trade respects explicitly provided timestamp."""
-    explicit_ts = 1704153845000
-    t = Trade(
-        id="trade-2",
-        market="market-2",
-        assetId="asset-2",
-        timestamp=explicit_ts,
-        side="SELL",
-        size="5.0",
-        price="0.45",
-    )
-
-    assert t.timestamp == explicit_ts
-
-
-def test_trade_with_complete_data() -> None:
-    """Test Trade with comprehensive data."""
-    t = Trade(
-        id="trade-complete",
-        market="market-123",
-        assetId="asset-456",
-        conditionId="condition-789",
-        side="BUY",
-        size="100.0",
-        price="0.55",
-        feeRateBps=100,
-        status="MATCHED",
-        timestamp=1704196800000,
-        makerAddress="0x1234567890abcdef",
-        matchTime="2025-01-02T12:00:01Z",
-    )
-
-    assert t.id == "trade-complete"
-    assert t.asset_id == "asset-456"
-    assert t.condition_id == "condition-789"
-    assert t.fee_rate_bps == 100
-    assert t.maker_address == "0x1234567890abcdef"
-    assert t.match_time == "2025-01-02T12:00:01Z"
-    assert t.timestamp == 1704196800000
-
-
 def test_orderbook_mid_spread_and_depth() -> None:
     """Test OrderBook calculations for mid price, spread, and depth."""
-    bids = [
-        OrderBookLevel(price="0.4", size="10.0"),
-        OrderBookLevel(price="0.3", size="5.0"),
-    ]
-    asks = [
-        OrderBookLevel(price="0.6", size="4.0"),
-        OrderBookLevel(price="0.7", size="6.0"),
-    ]
+    bids = [OrderBookLevel(price=0.4, size=10.0), OrderBookLevel(price=0.3, size=5.0)]
+    asks = [OrderBookLevel(price=0.6, size=4.0), OrderBookLevel(price=0.7, size=6.0)]
 
     ob = OrderBook(
         token_id="YES",
