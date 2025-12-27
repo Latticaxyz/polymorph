@@ -12,8 +12,8 @@ from rich.table import Table
 from polymorph import __version__
 from polymorph.config import config
 from polymorph.core.base import PipelineContext, RuntimeConfig
-from polymorph.models.pipeline import ProcessInputConfig, ProcessResult
-from polymorph.pipeline import FetchStage, ProcessStage
+from polymorph.models.pipeline import FilterConfig, FilterResult, ProcessInputConfig, ProcessResult
+from polymorph.pipeline import FetchStage, FilterStage, ProcessStage
 from polymorph.utils.logging import setup as setup_logging
 from polymorph.utils.schema import (
     DiscoveredFiles,
@@ -59,7 +59,7 @@ def _parse_bool_option(value: str) -> bool:
 
 
 def _validate_inputs(
-    do_enriched: bool,
+    do_join: bool,
     do_returns: bool,
     do_panel: bool,
     do_trades: bool,
@@ -69,8 +69,8 @@ def _validate_inputs(
     trades_file: Path | None = None,
 ) -> list[str]:
     errors: list[str] = []
-    needs_markets = do_enriched
-    needs_prices = do_enriched or do_returns or do_panel
+    needs_markets = do_join
+    needs_prices = do_join or do_returns or do_panel
     needs_trades = do_trades
 
     if discovered is not None:
@@ -83,7 +83,7 @@ def _validate_inputs(
     else:
         if needs_markets:
             if markets_file is None:
-                errors.append("--markets required (for --enriched)")
+                errors.append("--markets required (for --join)")
             elif not markets_file.exists():
                 errors.append(f"File not found: {markets_file}")
             else:
@@ -93,7 +93,7 @@ def _validate_inputs(
 
         if needs_prices:
             if prices_file is None:
-                errors.append("--prices required (for --enriched/--returns/--panel)")
+                errors.append("--prices required (for --join/--returns/--panel)")
             elif not prices_file.exists():
                 errors.append(f"File not found: {prices_file}")
             else:
@@ -120,8 +120,8 @@ def _build_results_table(result: ProcessResult) -> Table:
     table.add_column("Path")
     table.add_column("Count")
 
-    if result.prices_enriched_path:
-        table.add_row("Enriched Prices", str(result.prices_enriched_path), str(result.enriched_count))
+    if result.prices_joined_path:
+        table.add_row("Joined Prices", str(result.prices_joined_path), str(result.joined_count))
     if result.daily_returns_path:
         table.add_row("Daily Returns", str(result.daily_returns_path), str(result.returns_count))
     if result.price_panel_path:
@@ -134,13 +134,34 @@ def _build_results_table(result: ProcessResult) -> Table:
     return table
 
 
+def _build_filter_results_table(result: FilterResult) -> Table:
+    table = Table(title="Filter Results")
+    table.add_column("Metric")
+    table.add_column("Value")
+
+    table.add_row("Input", str(result.input_path) if result.input_path else "-")
+    table.add_row("Output", str(result.output_path) if result.output_path else "-")
+    table.add_row("Input rows", str(result.input_count))
+    table.add_row("Output rows", str(result.output_count))
+    table.add_row("Rows filtered", str(result.input_count - result.output_count))
+
+    if result.filters_applied:
+        table.add_row("Filters applied", ", ".join(result.filters_applied))
+
+    return table
+
+
+def _parse_date(date_str: str) -> datetime:
+    return datetime.strptime(date_str, "%Y-%m-%d")
+
+
 def _resolve_input_config(
     run_dir: Path | None,
     data_dir: Path,
     markets_file: Path | None,
     prices_file: Path | None,
     trades_input_file: Path | None,
-    do_enriched: bool,
+    do_join: bool,
     do_returns: bool,
     do_panel: bool,
     do_trades: bool,
@@ -158,7 +179,7 @@ def _resolve_input_config(
         if discovered.unknown:
             console.print(f"[yellow]Unrecognized files (skipped): {[f.name for f in discovered.unknown]}[/yellow]")
 
-        errors = _validate_inputs(do_enriched, do_returns, do_panel, do_trades, discovered=discovered)
+        errors = _validate_inputs(do_join, do_returns, do_panel, do_trades, discovered=discovered)
         if errors:
             console.print(f"[red]Missing required files in {resolved_run_dir}:[/red]")
             for err in errors:
@@ -179,7 +200,7 @@ def _resolve_input_config(
         )
 
     errors = _validate_inputs(
-        do_enriched,
+        do_join,
         do_returns,
         do_panel,
         do_trades,
@@ -203,17 +224,17 @@ def _resolve_input_config(
 def _execute_processing_steps(
     stage: ProcessStage,
     context: PipelineContext,
-    do_enriched: bool,
+    do_join: bool,
     do_returns: bool,
     do_panel: bool,
     do_trades: bool,
 ) -> ProcessResult:
     result = ProcessResult(run_timestamp=context.run_timestamp)
 
-    if do_enriched:
-        r = stage.build_enriched_prices()
-        result.prices_enriched_path = r.prices_enriched_path
-        result.enriched_count = r.enriched_count
+    if do_join:
+        r = stage.build_joined_prices()
+        result.prices_joined_path = r.prices_joined_path
+        result.joined_count = r.joined_count
 
     if do_returns:
         r = stage.build_daily_returns()
@@ -447,10 +468,10 @@ def process(
         help="Output directory (default: data/processed)",
         rich_help_panel="Output",
     ),
-    enriched: str = typer.Option(
+    join: str = typer.Option(
         "true",
-        "--enriched",
-        help="Build enriched prices (true/false)",
+        "--join",
+        help="Build joined prices (true/false)",
         rich_help_panel="Processing Steps",
     ),
     returns: str = typer.Option(
@@ -472,7 +493,7 @@ def process(
         rich_help_panel="Processing Steps",
     ),
 ) -> None:
-    do_enriched = _parse_bool_option(enriched)
+    do_join = _parse_bool_option(join)
     do_returns = _parse_bool_option(returns)
     do_panel = _parse_bool_option(panel)
     do_trades = _parse_bool_option(trades)
@@ -501,7 +522,7 @@ def process(
         markets_file=markets_file,
         prices_file=prices_file,
         trades_input_file=trades_input_file,
-        do_enriched=do_enriched,
+        do_join=do_join,
         do_returns=do_returns,
         do_panel=do_panel,
         do_trades=do_trades,
@@ -516,10 +537,160 @@ def process(
         input_config=input_config,
     )
 
-    result = _execute_processing_steps(stage, context, do_enriched, do_returns, do_panel, do_trades)
+    result = _execute_processing_steps(stage, context, do_join, do_returns, do_panel, do_trades)
 
     console.print(_build_results_table(result))
     console.print("Process complete.")
+
+
+@app.command(help="Filter prices_joined.parquet by various criteria")
+def filter(
+    ctx: typer.Context,
+    input_file: Path = typer.Argument(..., help="Path to prices_joined.parquet"),
+    out: Path = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="Output file path (default: INPUT_FILE directory + prices_filtered.parquet)",
+    ),
+    start_date: str = typer.Option(
+        None,
+        "--start-date",
+        help="Include prices on or after this date (YYYY-MM-DD format)",
+        rich_help_panel="Date Filtering",
+    ),
+    end_date: str = typer.Option(
+        None,
+        "--end-date",
+        help="Include prices on or before this date (YYYY-MM-DD format)",
+        rich_help_panel="Date Filtering",
+    ),
+    resolved_only: bool = typer.Option(
+        False,
+        "--resolved-only",
+        help="Only include prices from resolved markets",
+        rich_help_panel="Resolution Filtering",
+    ),
+    unresolved_only: bool = typer.Option(
+        False,
+        "--unresolved-only",
+        help="Only include prices from unresolved markets",
+        rich_help_panel="Resolution Filtering",
+    ),
+    min_age_days: int = typer.Option(
+        None,
+        "--min-age-days",
+        help="Only markets at least N days old",
+        rich_help_panel="Market Age Filtering",
+    ),
+    max_age_days: int = typer.Option(
+        None,
+        "--max-age-days",
+        help="Only markets at most N days old",
+        rich_help_panel="Market Age Filtering",
+    ),
+    category: list[str] = typer.Option(
+        [],
+        "--category",
+        help="Include category (can be repeated)",
+        rich_help_panel="Category Filtering",
+    ),
+    exclude_category: list[str] = typer.Option(
+        [],
+        "--exclude-category",
+        help="Exclude category (can be repeated)",
+        rich_help_panel="Category Filtering",
+    ),
+    market_id: list[str] = typer.Option(
+        [],
+        "--market-id",
+        help="Include specific market ID (can be repeated)",
+        rich_help_panel="Market Selection",
+    ),
+    exclude_market: list[str] = typer.Option(
+        [],
+        "--exclude-market",
+        help="Exclude specific market ID (can be repeated)",
+        rich_help_panel="Market Selection",
+    ),
+    compute_jumps: bool = typer.Option(
+        False,
+        "--compute-jumps",
+        help="Compute and append jump_abs and jump_pct columns",
+        rich_help_panel="Jump Filtering",
+    ),
+    min_jump_pct: float = typer.Option(
+        None,
+        "--min-jump-pct",
+        help="Keep rows where |jump_pct| >= threshold (e.g., 0.05 for 5%)",
+        rich_help_panel="Jump Filtering",
+    ),
+    max_jump_pct: float = typer.Option(
+        None,
+        "--max-jump-pct",
+        help="Keep rows where |jump_pct| <= threshold (filter outliers)",
+        rich_help_panel="Jump Filtering",
+    ),
+    min_jump_abs: float = typer.Option(
+        None,
+        "--min-jump-abs",
+        help="Keep rows where |jump_abs| >= threshold",
+        rich_help_panel="Jump Filtering",
+    ),
+    max_jump_abs: float = typer.Option(
+        None,
+        "--max-jump-abs",
+        help="Keep rows where |jump_abs| <= threshold",
+        rich_help_panel="Jump Filtering",
+    ),
+) -> None:
+    if not input_file.exists():
+        console.print(f"[red]Error: Input file not found: {input_file}[/red]")
+        raise typer.Exit(1)
+
+    if resolved_only and unresolved_only:
+        console.print("[red]Error: --resolved-only and --unresolved-only are mutually exclusive[/red]")
+        raise typer.Exit(1)
+
+    resolved_input = input_file.resolve()
+    output_file = out.resolve() if out is not None else resolved_input.parent / "prices_filtered.parquet"
+
+    parsed_start_date = _parse_date(start_date).date() if start_date else None
+    parsed_end_date = _parse_date(end_date).date() if end_date else None
+
+    filter_config = FilterConfig(
+        start_date=parsed_start_date,
+        end_date=parsed_end_date,
+        resolved_only=resolved_only,
+        unresolved_only=unresolved_only,
+        min_age_days=min_age_days,
+        max_age_days=max_age_days,
+        categories=list(category),
+        exclude_categories=list(exclude_category),
+        market_ids=list(market_id),
+        exclude_market_ids=list(exclude_market),
+        compute_jumps=compute_jumps,
+        min_jump_pct=min_jump_pct,
+        max_jump_pct=max_jump_pct,
+        min_jump_abs=min_jump_abs,
+        max_jump_abs=max_jump_abs,
+    )
+
+    runtime_config = ctx.obj if ctx and ctx.obj else RuntimeConfig()
+    data_dir = Path(runtime_config.data_dir) if runtime_config.data_dir else _DEFAULT_DATA_DIR
+    context = create_context(data_dir, runtime_config=runtime_config)
+
+    stage = FilterStage(
+        context=context,
+        filter_config=filter_config,
+        input_path=resolved_input,
+        output_path=output_file,
+    )
+
+    result = asyncio.run(stage.execute())
+
+    console.print(_build_filter_results_table(result))
+    console.print("Filter complete.")
 
 
 def main() -> None:
