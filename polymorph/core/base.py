@@ -7,6 +7,7 @@ from pathlib import Path
 from polymorph.config import Config
 from polymorph.core.storage import PathStorage
 from polymorph.core.storage_factory import make_storage
+from polymorph.utils.run_names import generate_run_name
 
 
 @dataclass
@@ -41,12 +42,14 @@ class PipelineContext:
     data_dir: Path
     runtime_config: RuntimeConfig = field(default_factory=RuntimeConfig)
     storage: PathStorage = field(init=False)
+    run_name: str = field(init=False)
     _resolved: ResolvedConfig | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         if isinstance(self.data_dir, str):
             self.data_dir = Path(self.data_dir)
         self.storage = make_storage(self.config, root=self.data_dir)
+        self.run_name = generate_run_name(self.run_timestamp)
 
     @property
     def resolved(self) -> ResolvedConfig:

@@ -10,7 +10,6 @@ from polymorph.utils.constants import (
     MS_PER_DAY,
     PROCESSED_DIR,
     RAW_DIR,
-    TIMESTAMP_FORMAT,
     TRADES_FILENAME,
 )
 from polymorph.utils.logging import get_logger
@@ -44,7 +43,7 @@ class ProcessStage:
         self.input_config = input_config or ProcessInputConfig(raw_dir=self.raw_dir)
 
     def _stamp(self) -> str:
-        return self.context.run_timestamp.strftime(TIMESTAMP_FORMAT)
+        return self.context.run_name
 
     def _output_dir(self) -> Path:
         return self.processed_dir / self._stamp()
